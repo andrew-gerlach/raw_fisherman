@@ -1,0 +1,1439 @@
+---
+title: "RAW Fisherman Task"
+author: "Andrew Gerlach"
+date: "2025-01-30"
+output: html_document
+---
+
+# Setup
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo=FALSE, message=FALSE)
+
+library(tidyverse)
+library(readxl)
+library(stringr)
+library(gridExtra)
+library(philentropy)
+library(lme4)
+library(ggpubr)
+library(sjPlot)
+
+################################################################################
+# print message or blank line if empty                                         #
+################################################################################
+
+print_msg = function(msg) {
+
+    if(missing(msg)) {
+        cat('\n')
+    } else {
+        cat(paste(msg, '\n', sep='')) } }
+
+################################################################################
+# add_p_values_to_lmer
+# in:  mod - lmer model
+# out: coef_table - coef table with p values added
+################################################################################
+
+add_p_values_to_lmer = function(mod) {
+
+    coef_table = data.frame(coef(summary(mod)))
+    coef_table$p = sapply(0:(nrow(coef_table) - 1), function(i) get_lm_p(mod, i))
+    coef_table$p = round(coef_table$p, 4)
+    return(coef_table)
+
+}
+
+################################################################################
+# get_lm_p extracts p values from linear models
+# In:  mod - lm or glm object
+#      i - index of predictor
+# Out: p - p value
+################################################################################
+
+get_lm_p = function(mod, i) {
+
+    mod_type = class(mod)
+    # column depends on mod type
+    col = case_when(mod_type == "lm" ~ 4,
+                    mod_type == "lmerMod" ~ 3,
+                    mod_type == "lmerModLmerTest" ~ 5,
+                    mod_type == "glmerMod" ~ 4)
+    if(is.na(mod_type)) { stop("Model type not defined for get_lm_p function") }
+    # add one to row for intercept
+    i = i + 1
+    if(mod_type == "lmerMod") {
+        p = car::Anova(mod, "3")[i, col]
+    } else {
+        p = coef(summary(mod))[i, col]
+    }
+    return(p)
+
+}
+
+```
+
+## Set options...
+
+```{r options, include=TRUE}
+
+# file containing task data
+task_data_file <- "~/Fellowship/projects/raw/data/gerlachar_argo_decision_making_fisherman_ipad_raw_2507111521.xlsx"
+
+# file containing study data
+clin_data_file <- "~/Fellowship/projects/raw/data/RAW_study_data.xlsx"
+
+# exclusion criteria from 0 (most relaxed) to 2 (most stringent)
+stringent <- 1
+if(stringent == 1) {
+    print_msg("Excluding participants with marginal data")
+} else {
+    print_msg("Only excluding participants with poor data")
+}
+```
+
+## Set parameters...
+
+```{r params, include=FALSE}
+
+# define task parameters
+n_trial <- 5
+n_block <- 19
+
+# trials of interest
+#    1 is prior (dock position only)
+#    2 through n_trial + 1 are updates (dock position + sequence of n_trial fish)
+trials <- 1 : (n_trial + 1)
+
+# blocks of interest
+# block parameters are pulled from block name
+#      2 POS_even00_LAKEA_20b_LAKEB_80b_SEQ_bbbwb
+#      3 POS_lakeB1_LAKEA_40b_LAKEB_60b_SEQ_bwbbw
+#      4 POS_even00_LAKEA_80b_LAKEB_20b_SEQ_wbbbb
+#      5 POS_lakeB1_LAKEA_70b_LAKEB_30b_SEQ_wbbbb
+#      6 POS_lakeA2_LAKEA_40b_LAKEB_60b_SEQ_wbwwb
+#      7 POS_lakeA1_LAKEA_20b_LAKEB_80b_SEQ_bwbbb
+#      8 POS_even00_LAKEA_30b_LAKEB_70b_SEQ_wbwwb
+#      9 POS_lakeA2_LAKEA_70b_LAKEB_30b_SEQ_wbbww
+#     10 POS_even00_LAKEA_20b_LAKEB_80b_SEQ_wbwww
+#     11 POS_lakeA1_LAKEA_100b_LAKEB_0b_SEQ_bbbbb
+#     12 POS_lakeB1_LAKEA_60b_LAKEB_40b_SEQ_bwbwb
+#     13 POS_even00_LAKEA_60b_LAKEB_40b_SEQ_wbwbw
+#     14 POS_even00_LAKEA_60b_LAKEB_40b_SEQ_wwbbb
+#     15 POS_lakeA1_LAKEA_70b_LAKEB_30b_SEQ_bbwbb
+#     16 POS_lakeB2_LAKEA_30b_LAKEB_70b_SEQ_wbwbb
+#     17 POS_even00_LAKEA_30b_LAKEB_70b_SEQ_wbbwb
+#     18 POS_lakeA2_LAKEA_80b_LAKEB_20b_SEQ_bwwww
+#     19 POS_lakeB2_LAKEA_60b_LAKEB_40b_SEQ_bwbwb
+#     20 POS_lakeB2_LAKEA_0b_LAKEB_100b_SEQ_wwwww
+all_blocks <- 3 : 20
+
+# do not analyze block 1 (walkthrough example), 2 (trial block), 11 or 20 (catch blocks)
+blocks <- c(3 : 10, 12 : 19)
+
+```
+
+## Read in and preprocess data...
+
+```{r read_data, include=FALSE}
+
+# read in task data file
+dat <- read_excel(task_data_file)
+
+# read in clinical data file
+clin_dat <- read_excel(clin_data_file)
+
+# remove walkthrough data
+dat <- dat %>% filter(blocknum != 1)
+
+# remove duplicate data for RAW_1334 (completed first on 3/17/25, but not marked in redcap)
+dat <- dat %>% filter(!(subject == "RAW_1334" & date == "2025-05-19"))
+
+# convert to factors
+factor_cols <- c("subject", "blocknum")
+dat[factor_cols] <- lapply(dat[factor_cols], as.factor)
+
+# subject list
+ids <- unique(dat$subject)
+n <- length(ids)
+
+# code position as -2, -1, 0, 1, 2)
+tmp <- str_split(dat$blockcode, "_", simplify=T)
+dat$POS <- sapply(tmp[, 2],
+    function(x) which(c("lakeA2", "lakeA1", "even00", "lakeB1", "lakeB2") == x),
+    simplify=T) - 3
+
+# code LAKEA and LAKEB as percentage of black fish
+dat$LAKEA <- as.numeric(str_sub(tmp[, 4], end=-2))
+dat$LAKEB <- as.numeric(str_sub(tmp[, 6], end=-2))
+
+dat$SEQ <- tmp[, 8]
+
+# code FISH as "w" or "b"
+dat$FISH <- NA
+dat$FISH[dat$stimulusitem6 == "whiteFish.png"] <- "w"
+dat$FISH[dat$stimulusitem6 == "blackFish.png"] <- "b"
+dat$FISH <- as.factor(dat$FISH)
+
+```
+
+# Basic Quality Checks
+
+## Verify data matches expected format...
+```{r verify, include=TRUE}
+
+# Verify!
+verify_data <- function(dat) {
+
+    dat$POS_verify <-  NA
+    dat$LAKEA_verify <- NA
+    dat$LAKEB_verify <- NA
+    dat$FISH_verify <- NA
+    
+    for(i in 1:n) {
+        
+        for(b in 2: (n_block + 1)) {
+            
+            chunk <- dat$subject == ids[i] & dat$blocknum == b
+            if(sum(chunk) == 0) { next }
+            
+            # prior only trial
+            first <- min(which(chunk))
+            dat$POS_verify[first] <- which(c("POS_lakeA2.png",
+                                             "POS_lakeA1.png",
+                                             "POS_even.png",
+                                             "POS_lakeB1.png",
+                                             "POS_lakeB2.png") ==
+                dat$stimulusitem4[first]) - 3
+
+            # fish sequence trials
+            chunk <- chunk & dat$trialnum > 1
+            if(sum(chunk) == 0) { next }
+            
+            # task modification on 08/05/24
+            if(min(dat$date[chunk]) < as.Date("2024-08-05")) {
+                tmp_pos <- dat$stimulusitem3[chunk]
+            } else {
+                tmp_pos <- dat$stimulusitem4[chunk]
+            }
+            dat$POS_verify[chunk] <- sapply(tmp_pos,
+                function(x) which(c("POS_lakeA2.png",
+                                    "POS_lakeA1.png",
+                                    "POS_even.png",
+                                    "POS_lakeB1.png",
+                                    "POS_lakeB2.png") == x), simplify=T) - 3
+            dat$FISH_verify[chunk] <-
+                str_split(tmp[min(which(chunk)), 8], "", simplify=T)[1 : sum(chunk)]
+        }
+    }
+
+    dat$LAKEA_verify <- sapply(dat$stimulusitem1,
+        function(x) {
+            # remove LAKEA or LAKEB
+            y <- str_split(x, "_", simplify=T)
+            # remove b.png or w.png
+            y <- str_split(y[2], "[bw]", simplify=T)
+            as.numeric(y[1])
+        },
+        simplify=T)
+
+    dat$LAKEB_verify <- sapply(dat$stimulusitem2,
+        function(x) {
+            # remove LAKEA or LAKEB
+            y <- str_split(x, "_", simplify=T)
+            # remove b.png or w.png
+            y <- str_split(y[2], "[bw]", simplify=T)
+            as.numeric(y[1])
+        },
+        simplify=T)
+
+    POS_mismatch <- which(dat$POS != dat$POS_verify)
+    if(length(POS_mismatch > 0)) {
+        print_msg()
+        print_msg("WARNING: position mismatches detected, apply POS_mismatch to see mismatched rows")
+        print_msg() }
+    LAKEA_mismatch <- which(dat$LAKEA != dat$LAKEA_verify)
+    if(length(LAKEA_mismatch > 0)) {
+        print_msg()
+        print_msg("WARNING: lakeA mismatches detected, apply LAKEA_mismatch to see mismatched rows")
+        print_msg() }
+    LAKEB_mismatch <- which(dat$LAKEB != dat$LAKEB_verify)
+    if(length(LAKEB_mismatch > 0)) {
+        print_msg()
+        print_msg("WARNING: lakeB mismatches detected, apply LAKEB_mismatch to see mismatched rows")
+        print_msg() }
+    FISH_mismatch <- which(dat$FISH != dat$FISH_verify)
+    if(length(FISH_mismatch > 0)) {
+        print_msg()
+        print_msg("WARNING: fish mismatches detected, apply FISH_mismatch to see mismatched rows")
+        if(length(FISH_mismatch == 40)) {
+            print_msg("    (only true for first 4 participants with known mislabeled sequences)") }
+        print_msg() }
+
+    return(list(POS_mismatch=POS_mismatch,
+                LAKEA_mismatch=LAKEA_mismatch,
+                LAKEB_mismatch=LAKEB_mismatch,
+                FISH_mismatch=FISH_mismatch))
+
+}
+
+data_check <- verify_data(dat)
+
+# pare down data so it's more manageable
+dat_full <- dat
+dat <- dat %>%
+       filter(blocknum != 2) %>%
+       dplyr::select(subject, blocknum, trialnum, POS, LAKEA, LAKEB, SEQ, FISH, response, latency) %>%
+       rename("time"="latency")
+
+```
+
+## Check catch blocks (blocks 11 and 20)...
+
+```{r check_catch, include=T}
+
+for(i in ids) {
+
+    catch11 <- dat %>%
+        filter(subject == i, blocknum == 11, trialnum > 1) %>%
+        pull(response)
+    if(any(catch11 != 1)) {
+        print_msg(paste("WARNING:", i, "failed mid-task catch trial!"))
+    }
+
+    catch20 <- dat %>%
+        filter(subject == i, blocknum == 20, trialnum > 1) %>%
+        pull(response)
+    if(any(catch20 != 1)) {
+        print_msg(paste("WARNING:", i, "failed end-of-task catch trial!"))
+    }
+
+}
+
+```
+
+# Model data
+
+## Generate ideal Bayesian model...
+
+Use `plot_subject()` to visualize idealized and empirical performance for a subject, e.g.:
+
+```{r, model_basic, include=T}
+
+# convert Likert to probability
+dat$prob_B <- dat$response / 10
+dat$prob_A <- 1 - dat$prob_B
+dat$prior <- NA
+dat$bayes_A_full <- NA
+dat$bayes_B_full <- NA
+dat$bayes_A_partial <- NA
+dat$bayes_B_partial <- NA
+
+for(i in ids) {
+  
+    for(block in all_blocks) {
+
+        # restrict to subject and block
+        idx <- dat$subject == i & dat$blocknum == block
+        if(sum(idx) == 0) { next }
+
+        # lake proportions
+        lA <- dat$LAKEA[idx & dat$trialnum == 1] / 100
+        lB <- dat$LAKEB[idx & dat$trialnum == 1] / 100
+
+        # prior calculation
+        dat$prior[idx] <- 1 - dat$response[idx & dat$trialnum == 1] / 10
+
+        # Bayesian optimal calculation
+        bayes_A_full <- rep(dat$prior[idx & dat$trialnum == 1], max(dat$trialnum[idx]))
+        bayes_B_full <- rep(1 - dat$prior[idx & dat$trialnum == 1], max(dat$trialnum[idx]))
+        bayes_A_partial <- bayes_A_full
+        bayes_B_partial <- bayes_B_full
+        
+        # Should be 6 trials per block but using this to catch strays
+        block_trials = max(dat$trialnum[idx])
+        if(block_trials == 1) { next }
+
+        for(trial in 2:block_trials) {
+
+            fish <- dat$FISH[idx & dat$trialnum == trial]
+            # Likelihood calculation
+            p_yA <- lA * (fish == "b") + (1 - lA) * (fish == "w")
+            p_yB <- lB * (fish == "b") + (1 - lB) * (fish == "w")
+
+            # Posterior update
+            idx2 = idx & (dat$trialnum == (trial - 1))
+            bayes_A_full[trial] <- bayes_A_full[trial - 1] * p_yA /
+                (bayes_A_full[trial - 1] * p_yA + bayes_B_full[trial - 1] * p_yB)
+            bayes_B_full[trial] <- 1 - bayes_A_full[trial]
+            bayes_A_partial[trial] <- dat$prob_A[idx2] * p_yA /
+                (dat$prob_A[idx2] * p_yA + dat$prob_B[idx2] * p_yB)
+            bayes_B_partial[trial] <- 1 - bayes_A_partial[trial]
+        }
+
+        # add to data frame
+        dat$bayes_A_full[idx] <- bayes_A_full
+        dat$bayes_B_full[idx] <- bayes_B_full
+        dat$bayes_A_partial[idx] <- bayes_A_partial
+        dat$bayes_B_partial[idx] <- bayes_B_partial
+        
+    }
+
+}
+
+# Plot subject data
+plot_subject <- function(id) {
+
+    dat$x <- as.numeric(as.character(dat$blocknum)) + dat$trialnum * 0.15 - 0.5
+    dat %>%
+        filter(subject == id) %>%
+        ggplot(aes(x, prob_A, color=blocknum)) +
+        geom_line() +
+        geom_point(shape=16) +
+        geom_line(aes(x, bayes_A_full, color=blocknum), linetype="dashed") +
+        geom_point(aes(x, bayes_A_full, color=blocknum),shape=15) +
+        scale_x_continuous(breaks=(3 : 20)) +
+        xlab("Block") +
+        ylab("Probability of Lake A") +
+        theme(text=element_text(size=18),
+              strip.background=element_blank(),
+              legend.position="none",
+              panel.background=element_blank(),
+              axis.line=element_line(),
+              axis.ticks=element_blank())
+
+}
+
+plot_subject(ids[1])
+
+```
+
+# Exclude subjects with abberent behavior...
+
+```{r exclude, include=T}
+
+# Excluded participants for poor data
+excl <- c("RAW_1243", "RAW_1261", "RAW_1251", "RAW_1264", "RAW_1255",
+          "RAW_1224", "RAW_1224", "RAW_1291", "RAW_1269", "RAW_1250",
+          "RAW_1328", "RAW_1337", "RAW_1366", "RAW_1345")
+
+# Barely acceptable data
+if(stringent == 1) {
+    excl <- c(excl, "RAW_1228", "RAW_1245", "RAW_1247", "RAW_1183", "RAW_1206",
+                    "RAW_1225", "RAW_1260", "RAW_1312", "RAW_1322", "RAW_1315",
+                    "RAW_1333", "RAW_1352", "RAW_1354", "RAW_1361", "RAW_1364",
+                    "RAW_1373", "RAW_1396", "RAW_1406")
+}
+
+for(i in excl) {
+    dat <- dat %>% filter(subject != i)
+    ids <- ids[ids != i]
+}
+
+n <- length(ids)
+
+```
+
+# Behavioral exploration
+
+## Add behavioral quantification...
+```{r summarize, include=F}
+
+dat2 <- data.frame(subject=rep(ids, each=length(blocks)), block=rep(blocks, n))
+dat2$prior_mean0 <- NA
+dat2$prior_mean1 <- NA
+dat2$prior_mean2 <- NA
+dat2$prior_sd0 <- NA
+dat2$prior_sd1 <- NA
+dat2$prior_sd2 <- NA
+dat2$prior_bias1 <- NA
+dat2$prior_bias2 <- NA
+dat2$change_rms <- NA
+dat2$change_abs <- NA
+dat2$dev_full_rms <- NA
+dat2$dev_full_abs <- NA
+dat2$dev_partial_rms <- NA
+dat2$dev_partial_abs <- NA
+dat2$no_change <- NA
+dat2$dev_count1 <- NA
+dat2$dev_count2 <- NA
+dat2$end_diff <- NA
+dat2$kl_block <- NA
+dat2$kl_total_full <- NA
+dat2$kl_total_partial <- NA
+
+quantify_behavior <- function(i, dat, dat2) {
+
+    # reduce to subject data
+    tmp <- dat %>% filter(subject == i)
+
+    # store the sign (direction) of position (A is neg, B is pos)
+    pos_dir <- sign(tmp$POS)
+
+    # mean and sd for middle position
+    idx <- tmp$trialnum == 1 & tmp$POS == 0
+    dat2$prior_mean0[dat2$subject == i] <- tmp[idx, ] %>%
+        pull(response) %>%
+        mean(na.rm=T) - 5
+    dat2$prior_sd0[dat2$subject == i] <- tmp[idx, ] %>%
+        pull(response) %>%
+        sd(na.rm=T)
+
+    # mean and sd for slight preference
+    idx <- tmp$trialnum == 1 & abs(tmp$POS) == 1
+    dat2$prior_mean1[dat2$subject == i] <- tmp[idx, ] %>%
+        pull(response) %>%
+        {5 + sign(pos_dir[idx]) * (. - 5)} %>%
+        mean(na.rm=T) - 5
+    dat2$prior_sd1[dat2$subject == i] <- tmp[idx, ] %>%
+        pull(response) %>%
+        {5 + sign(pos_dir[idx]) * (. - 5)} %>%
+        sd(na.rm=T)
+    dat2$prior_bias1[dat2$subject == i] <-
+        mean(tmp$response[idx & tmp$POS == 1], na.rm=T) +
+        mean(tmp$response[idx & tmp$POS == -1], na.rm=T) - 10
+
+    # mean and sd for strong preference
+    idx <- tmp$trialnum == 1 & abs(tmp$POS) == 2
+    dat2$prior_mean2[dat2$subject == i] <- tmp[idx, ] %>%
+        pull(response) %>%
+        {5 + sign(pos_dir[idx]) * (. - 5)} %>%
+        mean(na.rm=T) - 5
+    dat2$prior_sd2[dat2$subject == i] <- tmp[idx, ] %>%
+        pull(response) %>%
+        {5 + sign(pos_dir[idx]) * (. - 5)} %>%
+        sd(na.rm=T)
+    dat2$prior_bias2[dat2$subject == i] <-
+        mean(tmp$response[idx & tmp$POS == 2], na.rm=T) +
+        mean(tmp$response[idx & tmp$POS == -2], na.rm=T) - 10
+    
+    # remove catch trials
+    tmp <- tmp %>% filter(blocknum != 11, blocknum != 20)
+
+    # average change (RMS and ABS)
+    ts1 <- tmp %>% filter(trialnum != (n_trial + 1)) %>% pull(response)
+    ts2 <- tmp %>% filter(trialnum != 1) %>% pull(response)
+    dat2$change_rms[dat2$subject == i] <- sqrt(mean((ts1 - ts2) ^ 2, na.rm=T))
+    dat2$change_abs[dat2$subject == i] <- mean(abs(ts1 - ts2), na.rm=T)
+
+    # deviation from Bayes fully optimal solution (Bayes calculated blockwise)
+    ts1 <- tmp %>% filter(trialnum != 1) %>% pull(prob_A)
+    ts2 <- tmp %>% filter(trialnum != 1) %>% pull(bayes_A_full)
+    dat2$dev_full_rms[dat2$subject == i] <- sqrt(mean((ts2 - ts1) ^ 2, na.rm=T))
+    dat2$dev_full_abs[dat2$subject == i] <- mean(abs(ts2 - ts1), na.rm=T)
+    
+    # deviation from Bayes partially optimal solution (Bayes calculated trialwise)
+    ts1 <- tmp %>% filter(trialnum != 1) %>% pull(prob_A)
+    ts2 <- tmp %>% filter(trialnum != 1) %>% pull(bayes_A_partial)
+    dat2$dev_partial_rms[dat2$subject == i] <- sqrt(mean((ts2 - ts1) ^ 2, na.rm=T))
+    dat2$dev_partial_abs[dat2$subject == i] <- mean(abs(ts2 - ts1), na.rm=T)
+    
+    # deviation tally from direction of Bayes optimal solution
+    ts1p <- tmp %>% filter(trialnum != (n_trial + 1)) %>% pull(prob_A)
+    ts1b <- tmp %>% filter(trialnum != (n_trial + 1)) %>% pull(bayes_A_full)
+    ts2p <- tmp %>% filter(trialnum != 1) %>% pull(prob_A)
+    ts2b <- tmp %>% filter(trialnum != 1) %>% pull(bayes_A_full)
+    sign_p <- sign(ts1p - ts2p)
+    sign_b <- sign(ts1b - ts2b)
+    dat2$no_change[dat2$subject == i] = sum(sign_p == 0, na.rm=T)
+    dat2$dev_count1[dat2$subject == i] <- sum(sign_p != sign_b & sign_p != 0, na.rm=T)
+    dat2$dev_count2[dat2$subject == i] <- sum(sign_p != sign_b, na.rm=T)
+
+    # active inference POMDP
+    for(b in blocks) {
+      
+        bdat <- tmp %>% filter(blocknum == b)
+        if(nrow(bdat) == 0) { next }
+      
+        dat2$end_diff[dat2$subject == i & dat2$block == b] <-
+            (bdat$bayes_A_full[bdat$trialnum == 6] - bdat$prob_A[bdat$trialnum == 6]) *
+            sign(bdat$bayes_A_full[bdat$trialnum == 6] - 0.5)
+        
+        lakeAw <- 1 - bdat$LAKEA[1] / 100
+        lakeAb <- bdat$LAKEA[1] / 100
+        lakeBw <- 1 - bdat$LAKEB[1] / 100
+        lakeBb <- bdat$LAKEB[1] / 100
+        # prior
+        # [@LakeA
+        #  @LakeB]
+        D <- c(bdat$prior[1], 1 - bdat$prior[1])
+        # likelihood
+        # [P(white | @LakeA) P(white | @LakeB)
+        #  P(black | @LakeA) P(black | @LakeB)]
+        A <- matrix(c(lakeAw, lakeAb, lakeBw, lakeBb), 2, 2)
+        
+        for(t in bdat$trialnum[2 : nrow(bdat)]) {
+          
+            fish <- bdat %>% filter(trialnum == t) %>% pull(FISH)
+            # not sure i really need this
+            
+        }
+        
+        bdat <- bdat %>% filter(trialnum > 1)
+        emp <- hist(bdat$prob_A, breaks=c(0, seq(0.15, 0.85, 0.1), 1))
+        emp <- emp$counts / sum(emp$counts)
+        bay <- hist(bdat$bayes_A_full, breaks=c(0, seq(0.15, 0.85, 0.1), 1))
+        bay <- bay$counts / sum(bay$counts)
+        dat2$kl_block[dat2$subject == i & dat2$block == b] <-
+          suppressMessages(KL(rbind(bay, emp), unit="log2"))
+        
+    }
+    
+    tmp <- tmp %>% filter(trialnum > 1)
+    # calculate KL divergence between empirical and Bayes optimal probabilities
+    emp <- hist(tmp$prob_A, breaks=c(0, seq(0.15, 0.85, 0.1), 1))
+    emp <- emp$counts / sum(emp$counts)
+    bay <- hist(tmp$bayes_A_full, breaks=c(0, seq(0.15, 0.85, 0.1), 1))
+    bay <- bay$counts / sum(bay$counts)
+    dat2$kl_total_full[dat2$subject == i] <- 
+        suppressMessages(KL(rbind(bay, emp), unit="log2"))
+    bay <- hist(tmp$bayes_A_partial, breaks=c(0, seq(0.15, 0.85, 0.1), 1))
+    bay <- bay$counts / sum(bay$counts)
+    dat2$kl_total_partial[dat2$subject == i] <- 
+        suppressMessages(KL(rbind(bay, emp), unit="log2"))
+
+    return(dat2)
+
+}
+
+for(i in ids) { dat2 <- quantify_behavior(i, dat, dat2) }
+
+```
+
+```{r add_clinical, include=T}
+
+# add to task data
+dat$age <- NA
+dat$edu <- NA
+dat$race <- NA
+dat$sex <- NA
+dat$pswq <- NA
+dat$rsq <- NA
+dat$hars <- NA
+dat2$pswq <- NA
+dat2$rsq <- NA
+dat2$hars <- NA
+for(i in ids) {
+
+    # check for data
+    if(!(i %in% clin_dat$raw_id)) {
+        print_msg(paste("WARNING: clinical data missing for", i))
+        next
+    }
+    dat$age[dat$subject == i] <- clin_dat$status_consent_date[clin_dat$raw_id == i] - clin_dat$dob[clin_dat$raw_id == i]
+    dat$edu[dat$subject == i] <- clin_dat$edu[clin_dat$raw_id == i]
+    dat$race[dat$subject == i] <- clin_dat$race[clin_dat$raw_id == i]
+    dat$sex[dat$subject == i] <- clin_dat$gender[clin_dat$raw_id == i]
+    dat$pswq[dat$subject == i] <- clin_dat$pswq_total[clin_dat$raw_id == i]
+    dat$rsq[dat$subject == i] <- clin_dat$rsq_total[clin_dat$raw_id == i]
+    dat$hars[dat$subject == i] <- clin_dat$hars_score[clin_dat$raw_id == i]
+    dat2$pswq[dat2$subject == i] <- clin_dat$pswq_total[clin_dat$raw_id == i]
+    dat2$rsq[dat2$subject == i] <- clin_dat$rsq_total[clin_dat$raw_id == i]
+    dat2$hars[dat2$subject == i] <- clin_dat$hars_score[clin_dat$raw_id == i]
+
+}
+
+# add missing data
+#idx = which(dat2$subject == "RAW_1206")
+#dat$pswq[idx] = 60; dat$rsq[idx] = 47; dat$hars[idx] = 9
+#idx = which(dat2$subject == "RAW_1206")
+#dat2$pswq[idx] = 60; dat2$rsq[idx] = 47; dat2$hars[idx] = 9
+
+#idx = which(dat$subject == "RAW_1264")
+#dat$pswq[idx] = 46; dat$rsq[idx] = 54; dat$hars[idx] = 23
+#idx = which(dat2$subject == "RAW_1264")
+#dat2$pswq[idx] = 46; dat2$rsq[idx] = 54; dat2$hars[idx] = 23
+
+#idx = which(dat$subject == "RAW_1310")
+#dat$pswq[idx] = 57; dat$rsq[idx] = 33; dat$hars[idx] = 12
+#idx = which(dat2$subject == "RAW_1310")
+#dat2$pswq[idx] = 57; dat2$rsq[idx] = 33; dat2$hars[idx] = 12
+
+#idx = which(dat$subject == "RAW_1320")
+#dat$pswq[idx] = 50; dat$rsq[idx] = 27; dat$hars[idx] = 6
+#idx = which(dat2$subject == "RAW_1320")
+#dat2$pswq[idx] = 50; dat2$rsq[idx] = 27; dat2$hars[idx] = 6
+
+```
+
+## Fit parameterized Bayesian model...
+
+```{r bayes_lm_models, include=T}
+
+dat$like_A <- dat$LAKEA / 100 * (dat$FISH == "b") + (1 - dat$LAKEA / 100) * (dat$FISH == "w")
+dat$trial_prior <- NA
+dat$emp_prior <- NA
+dat2$prior_weight_lm <- NA
+dat2$likelihood_weight_lm <- NA
+dat2$marginal_weight_lm <- NA
+
+for(i in ids) {
+  
+    for(b in blocks) {
+  
+        idx <- (dat$subject == i) & (dat$blocknum == b)
+        if(sum(idx) < 2) { next }
+        
+        dat$trial_prior[idx & dat$trialnum > 1] <-
+            dat$prob_A[idx & dat$trialnum < sum(idx)]
+        dat$emp_prior[idx & dat$trialnum > 1] <-
+            dat$bayes_A_full[idx & dat$trialnum < sum(idx)]
+          
+    }
+  
+    m <- dat %>%
+        filter(subject == i) %>%
+        lm(log(prob_A) ~ log(trial_prior) + log(like_A), .)
+    
+    dat2$prior_weight_lm[dat2$subject == i] <- m$coefficients[2]
+    dat2$likelihood_weight_lm[dat2$subject == i] <- m$coefficients[3]
+    dat2$marginal_weight_lm[dat2$subject == i] <- m$coefficients[1]
+  
+}
+
+dat2$prior_likelihood_diff_lm = dat2$prior_weight_lm - dat2$likelihood_weight_lm
+
+mod <- lmer(log(prob_A) ~ (1 + log(trial_prior) + log(like_A) | subject), dat)
+
+dat3 <- dat2 %>% filter(block == 19) %>% select(-block)
+dat3 <- cbind(dat3, coef(mod)$subject)
+names(dat3)[(ncol(dat3) - 2) : ncol(dat3)] <- c("prior_weight_mem", "likelihood_weight_mem", "marginal_weight_mem")
+dat3$prior_likelihood_diff_mem <- dat3$prior_weight_mem - dat3$likelihood_weight_mem
+
+```
+
+## Clinical associations of behavior
+
+### Prior strength
+```{r behavior_prior_associations, include=T}
+
+# Plot mean values
+g_prior_mean1_pswq <- dat3 %>%
+    ggplot(aes(pswq, prior_mean1)) +
+    geom_point() +
+    stat_smooth(method="lm") +
+    stat_cor(method="spearman", label.y.npc=0.1) +
+    xlab("PSWQ") +
+    ylab("Mean weight of mod. prior") +
+    theme(strip.background=element_blank(),
+          panel.background=element_blank(),
+          axis.line=element_line(),
+          axis.ticks=element_blank())
+g_prior_mean1_rsq <- dat3 %>%
+    ggplot(aes(rsq, prior_mean1)) +
+    geom_point() +
+    stat_smooth(method="lm") +
+    stat_cor(method="spearman", label.y.npc=0.1) +
+    xlab("RSQ") +
+    ylab("Mean weight of mod. prior") +
+    theme(strip.background=element_blank(),
+          panel.background=element_blank(),
+          axis.line=element_line(),
+          axis.ticks=element_blank())
+g_prior_mean1_hars <- dat3 %>%
+    ggplot(aes(hars, prior_mean1)) +
+    geom_point() +
+    stat_smooth(method="lm") +
+    stat_cor(method="spearman", label.y.npc=0.1) +
+    xlab("HARS") +
+    ylab("Mean weight of mod. prior") +
+    theme(strip.background=element_blank(),
+          panel.background=element_blank(),
+          axis.line=element_line(),
+          axis.ticks=element_blank())
+
+g_prior_mean2_pswq <- dat3 %>%
+    ggplot(aes(pswq, prior_mean2)) +
+    geom_point() +
+    stat_smooth(method="lm") +
+    stat_cor(method="spearman", label.y.npc=0.1) +
+    xlab("PSWQ") +
+    ylab("Mean weight of strong prior") +
+    theme(strip.background=element_blank(),
+          panel.background=element_blank(),
+          axis.line=element_line(),
+          axis.ticks=element_blank())
+g_prior_mean2_rsq <- dat3 %>%
+    ggplot(aes(rsq, prior_mean2)) +
+    geom_point() +
+    stat_smooth(method="lm") +
+    stat_cor(method="spearman", label.y.npc=0.1) +
+    xlab("RSQ") +
+    ylab("Mean weight of strong prior") +
+    theme(strip.background=element_blank(),
+          panel.background=element_blank(),
+          axis.line=element_line(),
+          axis.ticks=element_blank())
+g_prior_mean2_hars <- dat3 %>%
+    ggplot(aes(hars, prior_mean2)) +
+    geom_point() +
+    stat_smooth(method="lm") +
+    stat_cor(method="spearman", label.y.npc=0.1) +
+    xlab("HARS") +
+    ylab("Mean weight of strong prior") +
+    theme(strip.background=element_blank(),
+          panel.background=element_blank(),
+          axis.line=element_line(),
+          axis.ticks=element_blank())
+
+grid.arrange(g_prior_mean1_pswq, g_prior_mean1_rsq, g_prior_mean1_hars,
+             g_prior_mean2_pswq, g_prior_mean2_rsq, g_prior_mean2_hars,
+             nrow=2, ncol=3)
+
+# Mixed effects models
+dat$prior_strength <- abs(dat$prior - 0.5) * 10
+
+mod_prior_pswq <- dat %>%
+    filter(trialnum == 1, POS != 0) %>%
+    mutate_at(c("prior_strength", "pswq"), scale) %>%
+    lmer(prior_strength ~ pswq + (1 | subject), .)
+mod_prior_pswq_plot <- dat %>%
+    filter(trialnum == 1, POS != 0) %>%
+    lmer(prior_strength ~ pswq + (1 | subject), .)
+mod_prior_rsq <- dat %>%
+    filter(trialnum == 1, POS != 0) %>%
+    mutate_at(c("prior_strength", "pswq"), scale) %>%
+    lmer(prior_strength ~ rsq + (1 | subject), .)
+mod_prior_rsq_plot <- dat %>%
+    filter(trialnum == 1, POS != 0) %>%
+    lmer(prior_strength ~ rsq + (1 | subject), .)
+mod_prior_hars <- dat %>%
+    filter(trialnum == 1, POS != 0) %>%
+    mutate_at(c("prior_strength", "pswq"), scale) %>%
+    lmer(prior_strength ~ hars + (1 | subject), .)
+mod_prior_hars_plot <- dat %>%
+    filter(trialnum == 1, POS != 0) %>%
+    lmer(prior_strength ~ hars + (1 | subject), .)
+
+mod_prior1_pswq <- dat %>%
+    filter(trialnum == 1, abs(POS) == 1) %>%
+    mutate_at(c("prior_strength", "pswq"), scale) %>%
+    lmer(prior_strength ~ pswq + (1 | subject), .)
+mod_prior1_rsq <- dat %>%
+    filter(trialnum == 1, abs(POS) == 1) %>%
+    mutate_at(c("prior_strength", "pswq"), scale) %>%
+    lmer(prior_strength ~ rsq + (1 | subject), .)
+mod_prior1_hars <- dat %>%
+    filter(trialnum == 1, abs(POS) == 1) %>%
+    mutate_at(c("prior_strength", "pswq"), scale) %>%
+    lmer(prior_strength ~ hars + (1 | subject), .)
+
+mod_prior2_pswq <- dat %>%
+    filter(trialnum == 1, abs(POS) == 2) %>%
+    mutate_at(c("prior_strength", "pswq"), scale) %>%
+    lmer(prior_strength ~ pswq + (1 | subject), .)
+mod_prior2_rsq <- dat %>%
+    filter(trialnum == 1, abs(POS) == 2) %>%
+    mutate_at(c("prior_strength", "pswq"), scale) %>%
+    lmer(prior_strength ~ rsq + (1 | subject), .)
+mod_prior2_hars <- dat %>%
+    filter(trialnum == 1, abs(POS) == 2) %>%
+    mutate_at(c("prior_strength", "pswq"), scale) %>%
+    lmer(prior_strength ~ hars + (1 | subject), .)
+
+# Plots with model fits
+
+# pull model fit
+g_df = plot_model(mod_prior_pswq_plot, type="pred")$data
+# adjust to account for plotting only with moderate prior mean data
+adj = mean(dat3$prior_mean1, na.rm=T) - mean(g_df$predicted)
+g_df$predicted = g_df$predicted + adj
+g_df$conf.low = g_df$conf.low + adj
+g_df$conf.high = g_df$conf.high + adj
+# create beta and p values label from mixed effects model
+lab = sprintf("b=%0.2f, p=%0.2f", add_p_values_to_lmer(mod_prior_pswq)[2, 1], add_p_values_to_lmer(mod_prior_pswq)[2, 4])
+# generate plot
+g_prior_mean_pswq <- dat3 %>%
+    ggplot(aes(pswq, prior_mean1)) +
+    geom_point(size=2) +
+    geom_line(aes(x, predicted), data=g_df, color="red", size=2) +
+    geom_ribbon(aes(x=x, ymin=conf.low, ymax=conf.high), data=g_df, alpha=0.2, fill="red", color=NA, inherit.aes = FALSE) +
+    annotate(geom="text", x=30, y=0.75, label=lab, size=18/.pt, color="red") +
+    xlab("Worry (PSWQ)") +
+    ylab("Prior Weight") +
+    theme(text=element_text(size=18),
+          strip.background=element_blank(),
+          panel.background=element_blank(),
+          axis.line=element_line(),
+          axis.ticks=element_blank())
+
+# pull model fit
+g_df = plot_model(mod_prior_rsq_plot, type="pred")$data
+# adjust to account for plotting only with moderate prior mean data
+adj = mean(dat3$prior_mean1, na.rm=T) - mean(g_df$predicted)
+g_df$predicted = g_df$predicted + adj
+g_df$conf.low = g_df$conf.low + adj
+g_df$conf.high = g_df$conf.high + adj
+# create beta and p values label from mixed effects model
+lab = sprintf("b=%0.2f, p=%0.2f", add_p_values_to_lmer(mod_prior_rsq)[2, 1], add_p_values_to_lmer(mod_prior_rsq)[2, 4])
+# generate plot
+g_prior_mean_rsq <- dat3 %>%
+    ggplot(aes(rsq, prior_mean1)) +
+    geom_point(size=2) +
+    geom_line(aes(x, predicted), data=g_df, color="blue", size=2) +
+    geom_ribbon(aes(x=x, ymin=conf.low, ymax=conf.high), data=g_df, alpha=0.2, fill="blue", color=NA, inherit.aes = FALSE) +
+    annotate(geom="text", x=65, y=0.75, label=lab, size=18/.pt, color="blue") +
+    xlab("Rumination (RSQ)") +
+    ylab("Prior Weight") +
+    theme(text=element_text(size=18),
+          strip.background=element_blank(),
+          panel.background=element_blank(),
+          axis.line=element_line(),
+          axis.ticks=element_blank())
+
+# pull model fit
+g_df = plot_model(mod_prior_hars_plot, type="pred")$data
+# adjust to account for plotting only with moderate prior mean data
+adj = mean(dat3$prior_mean1, na.rm=T) - mean(g_df$predicted)
+g_df$predicted = g_df$predicted + adj
+g_df$conf.low = g_df$conf.low + adj
+g_df$conf.high = g_df$conf.high + adj
+# create beta and p values label from mixed effects model
+lab = sprintf("b=%0.2f, p=%0.2f", add_p_values_to_lmer(mod_prior_hars)[2, 1], add_p_values_to_lmer(mod_prior_hars)[2, 4])
+# generate plot
+g_prior_mean_hars <- dat3 %>%
+    ggplot(aes(hars, prior_mean1)) +
+    geom_point(size=2) +
+    geom_line(aes(x, predicted), data=g_df, color="blue", size=2) +
+    geom_ribbon(aes(x=x, ymin=conf.low, ymax=conf.high), data=g_df, alpha=0.2, fill="blue", color=NA, inherit.aes = FALSE) +
+    annotate(geom="text", x=30, y=0.75, label=lab, size=18/.pt, color="blue") +
+    xlab("Anxiety (HARS)") +
+    ylab("Prior Weight") +
+    theme(text=element_text(size=18),
+          strip.background=element_blank(),
+          panel.background=element_blank(),
+          axis.line=element_line(),
+          axis.ticks=element_blank())
+
+
+```
+
+PSWQ has an inverse association with the weight given to priors (i.e., greater worry severity is associated with less weight given to the priors). In mixed-effects models, greater PSWQ is associated with lower weights for moderate priors (t=`r coef(summary(mod_prior1_pswq))[2, 3]`, p=`r get_lm_p(mod_prior1_pswq, 1)`) and strong priors (t=`r coef(summary(mod_prior2_pswq))[2, 3]`, p=`r get_lm_p(mod_prior2_pswq, 1)`). RSQ does not have an association with prior weight. HARS appears to have an inverse association with the weight give to the moderate prior, but this is not supported by mixed-effects models (t=`r round(coef(summary(mod_prior1_hars))[2, 3], 2)`, p=`r round(get_lm_p(mod_prior1_hars, 1), 2)`)
+
+### Model fit
+```{r behavior_deviation_full_associations, include=T}
+
+dat$dev = abs(dat$prob_A - dat$bayes_A_full)
+
+g_dev_full_rms_pswq <- dat3 %>%
+    filter(dev_full_rms < 0.28) %>%
+    ggplot(aes(pswq, dev_full_rms)) +
+    geom_point() +
+    stat_smooth(method="lm") +
+    stat_cor(method="pearson", label.y.npc=0.1) +
+    xlab("PSWQ") +
+    ylab("Deviation (RMS)")
+g_dev_full_rms_rsq <- dat3 %>%
+    filter(dev_full_rms < 0.28) %>%
+    ggplot(aes(rsq, dev_full_rms)) +
+    geom_point() +
+    stat_smooth(method="lm") +
+    stat_cor(method="pearson", label.y.npc=0.1) +
+    xlab("RSQ") +
+    ylab("Deviation (RMS)")
+g_dev_full_rms_hars <- dat3 %>%
+    filter(dev_full_rms < 0.28) %>%
+    ggplot(aes(hars, dev_full_rms)) +
+    geom_point() +
+    stat_smooth(method="lm") +
+    stat_cor(method="pearson", label.y.npc=0.1) +
+    xlab("HARS") +
+    ylab("Deviation (RMS)")
+
+g_dev_full_abs_pswq <- dat3 %>%
+    filter(dev_full_rms < 0.22) %>%
+    ggplot(aes(pswq, dev_full_abs)) +
+    geom_point() +
+    stat_smooth(method="lm") +
+    stat_cor(method="pearson", label.y.npc=0.1) +
+    xlab("PSWQ") +
+    ylab("Deviation (abs.)")
+g_dev_full_abs_rsq <- dat3 %>%
+    filter(dev_full_rms < 0.22) %>%
+    ggplot(aes(rsq, dev_full_abs)) +
+    geom_point() +
+    stat_smooth(method="lm") +
+    stat_cor(method="pearson", label.y.npc=0.1) +
+    xlab("RSQ") +
+    ylab("Deviation (abs.)")
+g_dev_full_abs_hars <- dat3 %>%
+    filter(dev_full_rms < 0.22) %>%
+    ggplot(aes(hars, dev_full_abs)) +
+    geom_point() +
+    stat_smooth(method="lm") +
+    stat_cor(method="pearson", label.y.npc=0.1) +
+    xlab("HARS") +
+    ylab("Deviation (abs.)")
+
+grid.arrange(g_dev_full_rms_pswq, g_dev_full_rms_rsq, g_dev_full_rms_hars,
+             g_dev_full_abs_pswq, g_dev_full_abs_rsq, g_dev_full_abs_hars,
+             nrow=2, ncol=3)
+
+mod_dev_pswq = dat %>%
+    filter(trialnum > 1, blocknum != 11, blocknum != 20) %>%
+    mutate_at(c("dev", "pswq"), scale) %>%
+    lmer(dev ~ pswq + (1 | subject), .)
+mod_dev_pswq_plot = dat %>%
+    filter(trialnum > 1, blocknum != 11, blocknum != 20) %>%
+    lmer(dev ~ pswq + (1 | subject), .)
+mod_dev_rsq = dat %>%
+    filter(trialnum > 1, blocknum != 11, blocknum != 20) %>%
+    mutate_at(c("dev", "rsq"), scale) %>%
+    lmer(dev ~ rsq + (1 | subject), .)
+mod_dev_rsq_plot = dat %>%
+    filter(trialnum > 1, blocknum != 11, blocknum != 20) %>%
+    lmer(dev ~ rsq + (1 | subject), .)
+mod_dev_hars = dat %>%
+    filter(trialnum > 1, blocknum != 11, blocknum != 20) %>%
+    mutate_at(c("dev", "hars"), scale) %>%
+    lmer(dev ~ hars + (1 | subject), .)
+mod_dev_hars_plot = dat %>%
+    filter(trialnum > 1, blocknum != 11, blocknum != 20) %>%
+    lmer(dev ~ hars + (1 | subject), .)
+
+
+# pull model fit
+g_df = plot_model(mod_dev_pswq_plot, type="pred")$data
+# create beta and p values label from mixed effects model
+lab = sprintf("b=%0.2f, p=%0.2f", add_p_values_to_lmer(mod_dev_pswq)[2, 1], add_p_values_to_lmer(mod_dev_pswq)[2, 4])
+# generate plot
+g_dev_abs_pswq <- dat3 %>%
+    ggplot(aes(pswq, dev_full_abs)) +
+    geom_point(size=2) +
+    geom_line(aes(x, predicted), data=g_df, color="blue", size=2) +
+    geom_ribbon(aes(x=x, ymin=conf.low, ymax=conf.high), data=g_df, alpha=0.2, fill="blue", color=NA, inherit.aes = FALSE) +
+    annotate(geom="text", x=65, y=0.22, label=lab, size=18/.pt, color="blue") +
+    xlab("Worry (PSWQ)") +
+    ylab("Deviation (abs.)") +
+    theme(text=element_text(size=18),
+          strip.background=element_blank(),
+          panel.background=element_blank(),
+          axis.line=element_line(),
+          axis.ticks=element_blank())
+
+# pull model fit
+g_df = plot_model(mod_dev_rsq_plot, type="pred")$data
+# create beta and p values label from mixed effects model
+lab = sprintf("b=%0.2f, p=%0.2f", add_p_values_to_lmer(mod_dev_rsq)[2, 1], add_p_values_to_lmer(mod_dev_rsq)[2, 4])
+# generate plot
+g_dev_abs_rsq <- dat3 %>%
+    ggplot(aes(rsq, dev_full_abs)) +
+    geom_point(size=2) +
+    geom_line(aes(x, predicted), data=g_df, color="blue", size=2) +
+    geom_ribbon(aes(x=x, ymin=conf.low, ymax=conf.high), data=g_df, alpha=0.2, fill="blue", color=NA, inherit.aes = FALSE) +
+    annotate(geom="text", x=60, y=0.22, label=lab, size=18/.pt, color="blue") +
+    xlab("Rumination (RSQ)") +
+    ylab("Deviation (abs.)") +
+    theme(text=element_text(size=18),
+          strip.background=element_blank(),
+          panel.background=element_blank(),
+          axis.line=element_line(),
+          axis.ticks=element_blank())
+
+# pull model fit
+g_df = plot_model(mod_dev_hars_plot, type="pred")$data
+# create beta and p values label from mixed effects model
+lab = sprintf("b=%0.2f, p=%0.2f", add_p_values_to_lmer(mod_dev_hars)[2, 1], add_p_values_to_lmer(mod_dev_hars)[2, 4])
+# generate plot
+g_dev_abs_hars <- dat3 %>%
+    ggplot(aes(hars, dev_full_abs)) +
+    geom_point(size=2) +
+    geom_line(aes(x, predicted), data=g_df, color="blue", size=2) +
+    geom_ribbon(aes(x=x, ymin=conf.low, ymax=conf.high), data=g_df, alpha=0.2, fill="blue", color=NA, inherit.aes = FALSE) +
+    annotate(geom="text", x=25, y=0.21, label=lab, size=18/.pt, color="blue") +
+    xlab("Anxiety (HARS)") +
+    ylab("Deviation (abs.)") +
+    theme(text=element_text(size=18),
+          strip.background=element_blank(),
+          panel.background=element_blank(),
+          axis.line=element_line(),
+          axis.ticks=element_blank())
+
+
+```
+
+There does not appear to be any association between deviations from the Bayesian fully optimal updates and PSWQ, RSQ, or HARS.
+
+```{r behavior_deviation_partial_associations, include=T}
+
+g_dev_partial_rms_pswq <- dat3 %>%
+    filter(dev_full_rms < 0.22) %>%
+    ggplot(aes(pswq, dev_partial_rms)) +
+    geom_point() +
+    stat_smooth(method="lm") +
+    stat_cor(method="pearson", label.y.npc=0.1) +
+    xlab("PSWQ") +
+    ylab("Deviation (RMS)")
+g_dev_partial_rms_rsq <- dat3 %>%
+    filter(dev_full_rms < 0.22) %>%
+    ggplot(aes(rsq, dev_partial_rms)) +
+    geom_point() +
+    stat_smooth(method="lm") +
+    stat_cor(method="pearson", label.y.npc=0.1) +
+    xlab("RSQ") +
+    ylab("Deviation (RMS)")
+g_dev_partial_rms_hars <- dat3 %>%
+    filter(dev_full_rms < 0.22) %>%
+    ggplot(aes(hars, dev_partial_rms)) +
+    geom_point() +
+    stat_smooth(method="lm") +
+    stat_cor(method="pearson", label.y.npc=0.1) +
+    xlab("HARS") +
+    ylab("Deviation (RMS)")
+
+g_dev_partial_abs_pswq <- dat3 %>%
+    filter(dev_full_rms < 0.17) %>%
+    ggplot(aes(pswq, dev_partial_abs)) +
+    geom_point() +
+    stat_smooth(method="lm") +
+    stat_cor(method="pearson", label.y.npc=0.1) +
+    xlab("PSWQ") +
+    ylab("Deviation (abs.)")
+g_dev_partial_abs_rsq <- dat3 %>%
+    filter(dev_full_rms < 0.17) %>%
+    ggplot(aes(rsq, dev_partial_abs)) +
+    geom_point() +
+    stat_smooth(method="lm") +
+    stat_cor(method="pearson", label.y.npc=0.1) +
+    xlab("RSQ") +
+    ylab("Deviation (abs.)")
+g_dev_partial_abs_hars <- dat3 %>%
+    filter(dev_full_rms < 0.17) %>%
+    ggplot(aes(hars, dev_partial_abs)) +
+    geom_point() +
+    stat_smooth(method="lm") +
+    stat_cor(method="pearson", label.y.npc=0.1) +
+    xlab("HARS") +
+    ylab("Deviation (abs.)")
+
+grid.arrange(g_dev_partial_rms_pswq, g_dev_partial_rms_rsq, g_dev_partial_rms_hars,
+             g_dev_partial_abs_pswq, g_dev_partial_abs_rsq, g_dev_partial_abs_hars,
+             nrow=2, ncol=3)
+
+```
+
+```{r behavior_kl_associations, include=T}
+
+g_kl_total_full_pswq <- dat3 %>%
+    ggplot(aes(pswq, log(kl_total_full))) +
+    geom_point() +
+    stat_smooth(method="lm") +
+    stat_cor(method="pearson", label.y.npc=0.1) +
+    xlab("PSWQ") +
+    ylab("KL Div. (log, full)")
+g_kl_total_full_rsq <- dat3 %>%
+    ggplot(aes(rsq, log(kl_total_full))) +
+    geom_point() +
+    stat_smooth(method="lm") +
+    stat_cor(method="pearson", label.y.npc=0.1) +
+    xlab("RSQ") +
+    ylab("KL Div. (log, full)")
+g_kl_total_full_hars <- dat3 %>%
+    ggplot(aes(hars, log(kl_total_full))) +
+    geom_point() +
+    stat_smooth(method="lm") +
+    stat_cor(method="pearson", label.y.npc=0.1) +
+    xlab("HARS") +
+    ylab("KL Div. (log, full)")
+
+g_kl_total_partial_pswq <- dat3 %>%
+    ggplot(aes(pswq, log(kl_total_partial))) +
+    geom_point() +
+    stat_smooth(method="lm") +
+    stat_cor(method="pearson", label.y.npc=0.1) +
+    xlab("PSWQ") +
+    ylab("KL Div. (log, partial)")
+g_kl_total_partial_rsq <- dat3 %>%
+    ggplot(aes(rsq, log(kl_total_partial))) +
+    geom_point() +
+    stat_smooth(method="lm") +
+    stat_cor(method="pearson", label.y.npc=0.1) +
+    xlab("RSQ") +
+    ylab("KL Div. (log, partial)")
+g_kl_total_partial_hars <- dat3 %>%
+    ggplot(aes(hars, log(kl_total_partial))) +
+    geom_point() +
+    stat_smooth(method="lm") +
+    stat_cor(method="pearson", label.y.npc=0.1) +
+    xlab("HARS") +
+    ylab("KL Div. (log, partial)")
+
+grid.arrange(g_kl_total_full_pswq, g_kl_total_full_rsq, g_kl_total_full_hars,
+             g_kl_total_partial_pswq, g_kl_total_partial_rsq, g_kl_total_partial_hars,
+             nrow=2, ncol=3)
+
+
+mod_klFullLog_pswq <- dat3 %>%
+    mutate_at(c("kl_total_full"), log) %>%
+    mutate_at(c("kl_total_full", "pswq"), scale) %>%
+    lm(kl_total_full ~ pswq, .)
+mod_klFullLog_rsq <- dat3 %>%
+    mutate_at(c("kl_total_full"), log) %>%
+    mutate_at(c("kl_total_full", "rsq"), scale) %>%
+    lm(kl_total_full ~ rsq, .)
+mod_klFullLog_hars <- dat3 %>%
+    mutate_at(c("kl_total_full"), log) %>%
+    mutate_at(c("kl_total_full", "hars"), scale) %>%
+    lm(kl_total_full ~ hars, .)
+
+```
+
+There does not appear to be any association between KL divergence from the Bayesian optimal updates and PSWQ, RSQ, or HARS. Also true when looking at KL divergence block-wise, though these measures are notably noisy.
+
+### Bayesian parameterization
+
+```{r behavior_prior_mod_associations, include=T}
+
+g_prior_weight_lm_pswq <- dat3 %>%
+    filter(prior_weight_lm > 0.25) %>% 
+    ggplot(aes(pswq, prior_weight_lm)) +
+    geom_point() +
+    stat_smooth(method="lm") +
+    stat_cor(method="pearson", label.y.npc=0.1) +
+    xlab("PSWQ") +
+    ylab("Prior Weight (lm)")
+g_prior_weight_lm_rsq <- dat3 %>%
+    filter(prior_weight_lm > 0.25) %>% 
+    ggplot(aes(rsq, prior_weight_lm)) +
+    geom_point() +
+    stat_smooth(method="lm") +
+    stat_cor(method="pearson", label.y.npc=0.1) +
+    xlab("RSQ") +
+    ylab("Prior Weight (lm)")
+g_prior_weight_lm_hars <- dat3 %>%
+    filter(prior_weight_lm > 0.25) %>% 
+    ggplot(aes(hars, prior_weight_lm)) +
+    geom_point() +
+    stat_smooth(method="lm") +
+    stat_cor(method="pearson", label.y.npc=0.1) +
+    xlab("HARS") +
+    ylab("Prior Weight (lm)")
+
+g_prior_weight_mem_pswq <- dat3 %>%
+    filter(prior_weight_mem > 0.25) %>% 
+    ggplot(aes(pswq, prior_weight_mem)) +
+    geom_point() +
+    stat_smooth(method="lm") +
+    stat_cor(method="pearson", label.y.npc=0.1) +
+    xlab("PSWQ") +
+    ylab("Prior Weight (mem)")
+g_prior_weight_mem_rsq <- dat3 %>%
+    filter(prior_weight_mem > 0.25) %>% 
+    ggplot(aes(rsq, prior_weight_mem)) +
+    geom_point() +
+    stat_smooth(method="lm") +
+    stat_cor(method="pearson", label.y.npc=0.1) +
+    xlab("RSQ") +
+    ylab("Prior Weight (mem)")
+g_prior_weight_mem_hars <- dat3 %>%
+    filter(prior_weight_mem > 0.25) %>% 
+    ggplot(aes(hars, prior_weight_mem)) +
+    geom_point() +
+    stat_smooth(method="lm") +
+    stat_cor(method="pearson", label.y.npc=0.1) +
+    xlab("HARS") +
+    ylab("Prior Weight (mem)")
+
+grid.arrange(g_prior_weight_lm_pswq, g_prior_weight_lm_rsq, g_prior_weight_lm_hars,
+             g_prior_weight_mem_pswq, g_prior_weight_mem_rsq, g_prior_weight_mem_hars,
+             nrow=2, ncol=3)
+
+```
+
+
+```{r behavior_likelihood_mod_associations, include=T}
+
+g_likelihood_weight_lm_pswq <- dat3 %>%
+    filter(likelihood_weight_lm < 0.88) %>% 
+    ggplot(aes(pswq, likelihood_weight_lm)) +
+    geom_point() +
+    stat_smooth(method="lm") +
+    stat_cor(method="pearson", label.y.npc=0.9) +
+    xlab("PSWQ") +
+    ylab("Likelihood Weight (lm)")
+g_likelihood_weight_lm_rsq <- dat3 %>%
+    filter(likelihood_weight_lm < 0.88) %>% 
+    ggplot(aes(rsq, likelihood_weight_lm)) +
+    geom_point() +
+    stat_smooth(method="lm") +
+    stat_cor(method="pearson", label.y.npc=0.9) +
+    xlab("RSQ") +
+    ylab("Likelihood Weight (lm)")
+g_likelihood_weight_lm_hars <- dat3 %>%
+    filter(likelihood_weight_lm < 0.88) %>% 
+    ggplot(aes(hars, likelihood_weight_lm)) +
+    geom_point() +
+    stat_smooth(method="lm") +
+    stat_cor(method="pearson", label.y.npc=0.9) +
+    xlab("HARS") +
+    ylab("Likelihood Weight (lm)")
+
+g_likelihood_weight_mem_pswq <- dat3 %>%
+    filter(likelihood_weight_mem < 0.88) %>% 
+    ggplot(aes(pswq, likelihood_weight_mem)) +
+    geom_point() +
+    stat_smooth(method="lm") +
+    stat_cor(method="pearson", label.y.npc=0.9) +
+    xlab("PSWQ") +
+    ylab("Likelihood Weight (mem)")
+g_likelihood_weight_mem_rsq <- dat3 %>%
+    filter(likelihood_weight_mem < 0.88) %>% 
+    ggplot(aes(rsq, likelihood_weight_mem)) +
+    geom_point() +
+    stat_smooth(method="lm") +
+    stat_cor(method="pearson", label.y.npc=0.9) +
+    xlab("RSQ") +
+    ylab("Likelihood Weight (mem)")
+g_likelihood_weight_mem_hars <- dat3 %>%
+    filter(likelihood_weight_mem < 0.88) %>% 
+    ggplot(aes(hars, likelihood_weight_mem)) +
+    geom_point() +
+    stat_smooth(method="lm") +
+    stat_cor(method="pearson", label.y.npc=0.9) +
+    xlab("HARS") +
+    ylab("Likelihood Weight (mem)")
+
+grid.arrange(g_likelihood_weight_lm_pswq, g_likelihood_weight_lm_rsq, g_likelihood_weight_lm_hars,
+             g_likelihood_weight_mem_pswq, g_likelihood_weight_mem_rsq, g_likelihood_weight_mem_hars,
+             nrow=2, ncol=3)
+
+```
+
+```{r behavior_pl_diff_mod_associations, include=T}
+
+mod_updateStrengthMEM_pswq <- dat3 %>%
+    filter(prior_likelihood_diff_mem > -0.75) %>%
+    mutate_at(c("prior_likelihood_diff_mem", "pswq"), scale) %>%
+    lm(prior_likelihood_diff_mem ~ pswq, .)
+mod_updateStrengthMEM_rsq <- dat3 %>%
+    filter(prior_likelihood_diff_mem > -0.75) %>%
+    mutate_at(c("prior_likelihood_diff_mem", "rsq"), scale) %>%
+    lm(prior_likelihood_diff_mem ~ rsq, .)
+mod_updateStrengthMEM_hars <- dat3 %>%
+    filter(prior_likelihood_diff_mem > -0.75) %>%
+    mutate_at(c("prior_likelihood_diff_mem", "hars"), scale) %>%
+    lm(prior_likelihood_diff_mem ~ hars, .)
+
+g_prior_likelihood_diff_lm_pswq <- dat3 %>%
+    filter(prior_likelihood_diff_lm < 6) %>%
+    ggplot(aes(pswq, prior_likelihood_diff_lm)) +
+    geom_point() +
+    stat_smooth(method="lm") +
+    stat_cor(method="pearson", label.y.npc=0.9) +
+    xlab("PSWQ") +
+    ylab("L-P Weight Diff (lm)")
+g_prior_likelihood_diff_lm_rsq <- dat3 %>%
+    filter(prior_likelihood_diff_lm < 6) %>%
+    ggplot(aes(rsq, prior_likelihood_diff_lm)) +
+    geom_point() +
+    stat_smooth(method="lm") +
+    stat_cor(method="pearson", label.y.npc=0.9) +
+    xlab("RSQ") +
+    ylab("L-P Weight Diff (lm)")
+g_prior_likelihood_diff_lm_hars <- dat3 %>%
+    filter(prior_likelihood_diff_lm < 6) %>%
+    ggplot(aes(hars, prior_likelihood_diff_lm)) +
+    geom_point() +
+    stat_smooth(method="lm") +
+    stat_cor(method="pearson", label.y.npc=0.9) +
+    xlab("HARS") +
+    ylab("L-P Weight Diff (lm)")
+
+lab = sprintf("b=%0.2f, p=%0.2f", coef(summary(mod_updateStrengthMEM_pswq))[2, 1], coef(summary(mod_updateStrengthMEM_pswq))[2, 4])
+g_prior_likelihood_diff_mem_pswq <- dat3 %>%
+    filter(prior_likelihood_diff_mem > -0.75) %>%
+    ggplot(aes(pswq, prior_likelihood_diff_mem)) +
+    geom_point(size=2) +
+    stat_smooth(method="lm", size=2, color="blue", fill=rgb(0, 0, 1, 0.2)) +
+    annotate(geom="text", x=30, y=-0.4, label=lab, color="blue", size=18/.pt) +
+    xlab("Worry (PSWQ)") +
+    ylab("Update Strength") +
+    theme(text=element_text(size=18),
+          strip.background=element_blank(),
+          panel.background=element_blank(),
+          axis.line=element_line(),
+          axis.ticks=element_blank())
+lab = sprintf("b=%0.2f, p=%0.2f", coef(summary(mod_updateStrengthMEM_rsq))[2, 1], coef(summary(mod_updateStrengthMEM_rsq))[2, 4])
+g_prior_likelihood_diff_mem_rsq <- dat3 %>%
+    filter(prior_likelihood_diff_mem > -0.75) %>%
+    ggplot(aes(rsq, prior_likelihood_diff_mem)) +
+    geom_point(size=2) +
+    stat_smooth(method="lm", size=2, color="red", fill=rgb(1, 0, 0, 0.2)) +
+    annotate(geom="text", x=35, y=-0.4, label=lab, color="red", size=18/.pt) +
+    xlab("Rumination (RSQ)") +
+    ylab("Update Strength") +
+    theme(text=element_text(size=18),
+          strip.background=element_blank(),
+          panel.background=element_blank(),
+          axis.line=element_line(),
+          axis.ticks=element_blank())
+lab = sprintf("b=%0.2f, p=%0.2f", coef(summary(mod_updateStrengthMEM_hars))[2, 1], coef(summary(mod_updateStrengthMEM_hars))[2, 4])
+g_prior_likelihood_diff_mem_hars <- dat3 %>%
+    filter(prior_likelihood_diff_mem > -0.75) %>%
+    ggplot(aes(hars, prior_likelihood_diff_mem)) +
+    geom_point(size=2) +
+    stat_smooth(method="lm", size=2, color="blue", fill=rgb(0, 0, 1, 0.2)) +
+    annotate(geom="text", x=30, y=-0.4, label=lab, color="blue", size=18/.pt) +
+    xlab("Anxiety (HARS)") +
+    ylab("Update Strength") +
+    theme(text=element_text(size=18),
+          strip.background=element_blank(),
+          panel.background=element_blank(),
+          axis.line=element_line(),
+          axis.ticks=element_blank())
+
+grid.arrange(g_prior_likelihood_diff_lm_pswq, g_prior_likelihood_diff_lm_rsq, g_prior_likelihood_diff_lm_hars,
+             g_prior_likelihood_diff_mem_pswq, g_prior_likelihood_diff_mem_rsq, g_prior_likelihood_diff_mem_hars,
+             nrow=2, ncol=3)
+
+
+```
+
+# Clinical Covariance
+
+```{r clinical_covariance}
+
+g_hars_pswq = dat3 %>%
+  ggplot(aes(hars, pswq)) +
+  geom_point(size=3) +
+  stat_smooth(method="lm", color="red") +
+  stat_cor(r.accuracy=0.01, p.accuracy=0.01, size=7) +
+  xlab("Anxiety (HARS)") +
+  ylab("Worry (PSWQ)") +
+  theme(text=element_text(size=24),
+        strip.background=element_blank(),
+        panel.background=element_blank(),
+        axis.line=element_line(),
+        axis.ticks=element_blank(),
+        strip.text.x = element_blank())
+
+g_pswq_rsq = dat3 %>%
+  ggplot(aes(pswq, rsq)) +
+  geom_point(size=3) +
+  stat_smooth(method="lm", color="red") +
+  stat_cor(r.accuracy=0.01, p.accuracy=0.01, size=7) +
+  xlab("Worry (PSWQ)") +
+  ylab("Rumination (RSQ)") +
+  theme(text=element_text(size=24),
+        strip.background=element_blank(),
+        panel.background=element_blank(),
+        axis.line=element_line(),
+        axis.ticks=element_blank(),
+        strip.text.x = element_blank())
+
+g_rsq_hars = dat3 %>%
+  ggplot(aes(rsq, hars)) +
+  geom_point(size=3) +
+  stat_smooth(method="lm", color="red") +
+  stat_cor(r.accuracy=0.01, p.accuracy=0.01, size=7) +
+  xlab("Rumination (RSQ)") +
+  ylab("Anxiety (HARS)") +
+  theme(text=element_text(size=24),
+        strip.background=element_blank(),
+        panel.background=element_blank(),
+        axis.line=element_line(),
+        axis.ticks=element_blank(),
+        strip.text.x = element_blank())
+```
