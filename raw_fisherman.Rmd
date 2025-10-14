@@ -794,14 +794,14 @@ mod_prior_pswq_plot <- dat %>%
     lmer(prior_strength ~ pswq + (1 | subject), .)
 mod_prior_rsq <- dat %>%
     filter(trialnum == 1, POS != 0) %>%
-    mutate_at(c("prior_strength", "pswq"), scale) %>%
+    mutate_at(c("prior_strength", "rsq"), scale) %>%
     lmer(prior_strength ~ rsq + (1 | subject), .)
 mod_prior_rsq_plot <- dat %>%
     filter(trialnum == 1, POS != 0) %>%
     lmer(prior_strength ~ rsq + (1 | subject), .)
 mod_prior_hars <- dat %>%
     filter(trialnum == 1, POS != 0) %>%
-    mutate_at(c("prior_strength", "pswq"), scale) %>%
+    mutate_at(c("prior_strength", "hars"), scale) %>%
     lmer(prior_strength ~ hars + (1 | subject), .)
 mod_prior_hars_plot <- dat %>%
     filter(trialnum == 1, POS != 0) %>%
@@ -813,11 +813,11 @@ mod_prior1_pswq <- dat %>%
     lmer(prior_strength ~ pswq + (1 | subject), .)
 mod_prior1_rsq <- dat %>%
     filter(trialnum == 1, abs(POS) == 1) %>%
-    mutate_at(c("prior_strength", "pswq"), scale) %>%
+    mutate_at(c("prior_strength", "rsq"), scale) %>%
     lmer(prior_strength ~ rsq + (1 | subject), .)
 mod_prior1_hars <- dat %>%
     filter(trialnum == 1, abs(POS) == 1) %>%
-    mutate_at(c("prior_strength", "pswq"), scale) %>%
+    mutate_at(c("prior_strength", "hars"), scale) %>%
     lmer(prior_strength ~ hars + (1 | subject), .)
 
 mod_prior2_pswq <- dat %>%
@@ -826,11 +826,11 @@ mod_prior2_pswq <- dat %>%
     lmer(prior_strength ~ pswq + (1 | subject), .)
 mod_prior2_rsq <- dat %>%
     filter(trialnum == 1, abs(POS) == 2) %>%
-    mutate_at(c("prior_strength", "pswq"), scale) %>%
+    mutate_at(c("prior_strength", "rsq"), scale) %>%
     lmer(prior_strength ~ rsq + (1 | subject), .)
 mod_prior2_hars <- dat %>%
     filter(trialnum == 1, abs(POS) == 2) %>%
-    mutate_at(c("prior_strength", "pswq"), scale) %>%
+    mutate_at(c("prior_strength", "hars"), scale) %>%
     lmer(prior_strength ~ hars + (1 | subject), .)
 
 # Plots with model fits
@@ -911,6 +911,9 @@ g_prior_mean_hars <- dat3 %>%
 ```
 
 PSWQ has an inverse association with the weight given to priors (i.e., greater worry severity is associated with less weight given to the priors). In mixed-effects models, greater PSWQ is associated with lower weights for moderate priors (t=`r coef(summary(mod_prior1_pswq))[2, 3]`, p=`r get_lm_p(mod_prior1_pswq, 1)`) and strong priors (t=`r coef(summary(mod_prior2_pswq))[2, 3]`, p=`r get_lm_p(mod_prior2_pswq, 1)`). RSQ does not have an association with prior weight. HARS appears to have an inverse association with the weight give to the moderate prior, but this is not supported by mixed-effects models (t=`r round(coef(summary(mod_prior1_hars))[2, 3], 2)`, p=`r round(get_lm_p(mod_prior1_hars, 1), 2)`)
+
+#AI added 9/9/2025
+prior1 only considers the prior when the fisherman’s in the medium position (prior2 is when he’s in the extreme condition). The model without a number is the one that considers it all and is reported.
 
 ### Model fit
 ```{r behavior_deviation_full_associations, include=T}
@@ -1436,4 +1439,136 @@ g_rsq_hars = dat3 %>%
         axis.line=element_line(),
         axis.ticks=element_blank(),
         strip.text.x = element_blank())
+
+```
+
+
+#### AI - Explore Cognitive Data
+## dat is the original data file; not exactly sure what is done for dat3 (block 19 only?)
+#dat2$prior_likelihood_diff_lm = dat2$prior_weight_lm - dat2$likelihood_weight_lm
+#mod <- lmer(log(prob_A) ~ (1 + log(trial_prior) + log(like_A) | subject), dat)
+#dat3 <- dat2 %>% filter(block == 19) %>% select(-block)
+#dat3 <- cbind(dat3, coef(mod)$subject)
+#names(dat3)[(ncol(dat3) - 2) : ncol(dat3)] <- c("prior_weight_mem", "likelihood_weight_mem", "marginal_weight_mem")
+#dat3$prior_likelihood_diff_mem <- dat3$prior_weight_mem - dat3$likelihood_weight_mem
+
+# Behavioral variables of interest: prior_strength (from dat), prior_mean? (from dat3), prior_likelihood_diff_mem (from dat3; this is subject specific, not trialwise)
+# Update strength: dat3$prior_likelihood_diff_mem <- dat3$prior_weight_mem - dat3$likelihood_weight_mem 
+
+# Variables of interest:
+# My guess: mmtotal (MoCA total), mtotal(t-MoCA total), mtotalis (RBANS total scale index score), ais (RBAN attention index score), lis (RBANS language index score), vcis (RBANS visuospatial construction index score), imis (RBANS immediate memory index score); maybe some individual measures: dspan_z (RBANS digit span raw z-score)
+# From Andrea: ***
+
+```{r cognitive_exploration, include=T}
+
+# Merge cognitive data with behavioral dataframe
+clin_dat <- clin_dat %>% mutate(subject=raw_id)
+dat3 <- left_join(dat3,clin_dat,by="subject")
+dat <- left_join(dat,clin_dat,by="subject")
+
+# Test broadly for correlations
+library(corrplot)
+library(RColorBrewer)
+
+#dat_cog <- dat %>% select(edu.x,prior_strength)
+dat_age_prior <- dat %>% select(subject,prior_strength) #don't think we can use prior strength here
+dat3_wage <- left_join(dat_age_prior,dat3,by="subject")
+dat3_cog <- dat3_wage %>% select(edu,pswq,rsq,prior_strength,prior_likelihood_diff_mem,prior_weight_mem, likelihood_weight_mem, marginal_weight_mem, mtotal,mtotalis,ais,lis,vcis,imis,dspan_z) %>%
+  mutate(edu_z = scale(edu),
+         prior_strength_z = scale(prior_strength),
+         prior_likelihood_diff_mem_z = scale(prior_likelihood_diff_mem),
+         mtotal_z = scale(mtotal),
+         mtotalis_z = scale(mtotalis),
+         ais_z = scale(ais),
+         lis_z = scale(lis),
+         vcis_z = scale(vcis),
+         imis_z = scale(imis),
+         dspan_z_z = scale(dspan_z)) %>%
+  select(edu_z, prior_strength, prior_likelihood_diff_mem, prior_weight_mem, likelihood_weight_mem, marginal_weight_mem, mtotal_z, mtotalis_z,
+         ais_z, lis_z, vcis_z, imis_z, pswq, rsq)
+
+# https://www.sthda.com/english/wiki/correlation-analyses-in-r
+M1 <- cor(dat3_cog,use="complete.obs")
+#corrplot(M1, type="upper", col=brewer.pal(n=8, name="RdYlBu")) #try dev.off() if won't show up
+corrplot(M1, type="upper", col=colorRampPalette(c("blue", "white", "red"))(200)) #try dev.off() if won't show up
+
+
+# To get correlation matrix with p-values
+library(Hmisc)
+dat3_matrix <- as.matrix(dat3_cog)
+pearson_correlation_results <- rcorr(dat3_matrix, type="pearson") #or spearman
+pearson_p_values <- pearson_correlation_results$P
+spearman_correlation_results <- rcorr(dat3_matrix, type="spearman") #or spearman
+spearman_p_values <- spearman_correlation_results$P
+
+#only keep significant results
+pearson_sig_results <- pearson_correlation_results
+pearson_sig_results$r[pearson_correlation_results$P>0.00714]=NA #multiple comparisons
+
+
+corrplot(pearson_correlation_results$r, type="upper", col=brewer.pal(n=8, name="RdYlBu"))
+#corrplot(pearson_p_values, type="upper", col=brewer.pal(n=8, name="RdYlBu"))
+
+#Multiple regression
+#prior_model <- lm(prior_strength ~ mtotal_z + mtotalis_z + ais_z + lis_z + vcis_z + imis_z + dspan_z_z, data = dat3_cog)
+prior_model <- lm(prior_strength ~ ais_z + lis_z + vcis_z + imis_z, data = dat3_cog)
+summary(prior_model)
+
+#update_model <- lm(prior_likelihood_diff_mem ~ mtotal_z + mtotalis_z + ais_z + lis_z + vcis_z + imis_z + dspan_z_z,data = dat3_cog)
+update_model <- lm(prior_likelihood_diff_mem ~ ais_z + lis_z + vcis_z + imis_z, data = dat3_cog)
+summary(update_model)
+
+
+# Add in rumination and worry
+#prior_model <- lm(prior_strength ~ scale(pswq) + ais_z + lis_z + vcis_z + imis_z, data = dat3_cog)
+prior_model <- lm(prior_strength ~ scale(pswq) + scale(rsq) + ais_z + lis_z + vcis_z + imis_z, data = dat3_cog)
+summary(prior_model)
+
+
+#update_model <- lm(prior_likelihood_diff_mem ~ scale(rsq) + ais_z + lis_z + vcis_z + imis_z, data = dat3_cog)
+update_model <- lm(prior_likelihood_diff_mem ~ scale(pswq) + scale(rsq) + ais_z + lis_z + vcis_z + imis_z, data = dat3_cog)
+summary(update_model)
+
+# MLM for prior strength (original model) - need to do the prior analysis with MLM, right?
+mod_prior_pswq <- dat %>%
+    filter(trialnum == 1, POS != 0) %>%
+    mutate_at(c("prior_strength", "pswq"), scale) %>%
+    lmer(prior_strength ~ pswq + (1 | subject), .)
+summary(mod_prior_pswq)
+add_p_values_to_lmer(mod_prior_pswq)
+
+
+# MLM for cognition only
+mod_prior_cognition <- dat %>%
+    filter(trialnum == 1, POS != 0) %>%
+    mutate_at(c("prior_strength"), scale) %>%
+    lmer(prior_strength ~ scale(ais) + scale(lis) + scale(vcis) + scale(imis)  + (1 | subject), .)
+summary(mod_prior_cognition)
+add_p_values_to_lmer(mod_prior_cognition)
+
+# Add cognition 
+#dat <- dat %>% mutate(mtotal_z = scale(mtotal),
+#         mtotalis_z = scale(mtotalis),
+#         ais_z = scale(ais),
+#         lis_z = scale(lis),
+#         vcis_z = scale(vcis),
+#         imis_z = scale(imis),
+#         dspan_z_z = scale(dspan_z))
+mod_prior_pswq_cog <- dat %>%
+    filter(trialnum == 1, POS != 0) %>%
+    mutate_at(c("prior_strength", "pswq"), scale) %>%
+    lmer(prior_strength ~ pswq + scale(ais) + scale(lis) + scale(vcis) + scale(imis) + (1 | subject), .)
+    #lmer(prior_strength ~ pswq + ais_z + lis_z + vcis_z + imis_z + (1 | subject), .)
+summary(mod_prior_pswq_cog)
+add_p_values_to_lmer(mod_prior_pswq_cog)
+#attention only
+mod_prior_pswq_att <- dat %>%
+    filter(trialnum == 1, POS != 0) %>%
+    mutate_at(c("prior_strength", "pswq"), scale) %>%
+    lmer(prior_strength ~ pswq + scale(ais) + (1 | subject), .)
+    #lmer(prior_strength ~ pswq + ais_z + lis_z + vcis_z + imis_z + (1 | subject), .)
+summary(mod_prior_pswq_att)
+add_p_values_to_lmer(mod_prior_pswq_att)
+
+
 ```
