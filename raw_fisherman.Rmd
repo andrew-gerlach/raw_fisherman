@@ -1006,7 +1006,7 @@ g_likelihood_weight_mem_hars <- dat3 %>%
     xlab("HARS") +
     ylab("Likelihood Weight (mem)")
 
-grid.arrange(g_likelihood_weight_lm_pswq, g_likelihood_weight_lm_rsq, g_likelihood_weight_lm_hars,
+grid.arrange(g_likelihood_weight_mem_pswq, g_likelihood_weight_mem_rsq, g_likelihood_weight_mem_hars,
              nrow=1, ncol=3)
 
 ```
