@@ -74,6 +74,70 @@ get_lm_p = function(mod, i) {
 
 }
 
+################################################################################
+# model_clinical_behavior models relationships and plots model fits
+# In:  dat - trial level data
+#      dat3 - subject level data
+#      behav - behavioral measure of interest
+#      clin - clinical measure of interest
+#      behav_label - plot label for behavioral measure of interest
+#      clin_label - plot label for clinical measure
+#      x - x coordinate of statistical annotation on plot
+#      y - y coordinate of statistical annotation on plot
+# Out: g - plot of mean behavior with trial level fit
+#      mod - mixed effects model of trial level fit
+################################################################################
+
+model_clinical_behavior <- function(dat, dat3, behav, clin, behav_label, clin_label, x, y, behav_plot) {
+
+    # default plot to behavior
+    if(missing(behav_plot)) { behav_plot = behav }
+  
+    # formula
+    form <- as.formula(paste(behav, "~", clin, "+ (1 | subject)"))
+    # fit model
+    mod <- dat %>%
+        mutate_at(c(behav, clin), scale) %>%
+        lmer(form, .)
+    mod_plot <- dat %>%
+        lmer(form, .)
+    
+    # extract model fit
+    g_df <- plot_model(mod_plot, type="pred")$data
+    # adjust to account for plotting only with moderate prior mean data
+    adj <- mean(dat3[[behav_plot]], na.rm=T) - mean(g_df$predicted)
+    g_df$predicted <- g_df$predicted + adj
+    g_df$conf.low <- g_df$conf.low + adj
+    g_df$conf.high <- g_df$conf.high + adj
+    
+    # create beta and p values label from mixed effects model
+    annot <- sprintf("b=%0.2f, p=%0.2f",
+                    add_p_values_to_lmer(mod)[2, 1],
+                    add_p_values_to_lmer(mod)[2, 4])
+    
+    # set color based on significance
+    col = "blue"
+    if(round(add_p_values_to_lmer(mod)[2, 4], 2) <= 0.05) { col = "red" }
+
+    # generate plot
+    g <- dat3 %>%
+        ggplot(aes(.data[[clin]], .data[[behav_plot]])) +
+        geom_point(size=2) +
+        geom_line(aes(x, predicted), data=g_df, color=col, size=2) +
+        geom_ribbon(aes(x=x, ymin=conf.low, ymax=conf.high), data=g_df, alpha=0.2, fill=col, color=NA, inherit.aes = FALSE) +
+        annotate(geom="text", x=x, y=y, label=annot, size=18/.pt, color=col) +
+        xlab(clin_label) +
+        ylab(behav_label) +
+        theme(text=element_text(size=18),
+            strip.background=element_blank(),
+            panel.background=element_blank(),
+            axis.line=element_line(),
+            axis.ticks=element_blank())
+    
+    return(list(g = g, mod = mod))
+
+}
+
 ```
 
 ## Set options...
@@ -383,6 +447,11 @@ for(i in ids) {
     }
 
 }
+
+# Code direction-independent prior strength
+dat$prior_strength <- abs(dat$prior - 0.5) * 10
+# Add trial level deviation
+dat$dev = abs(dat$prob_A - dat$bayes_A_full)
 
 # Plot subject data
 plot_subject <- function(id) {
@@ -708,9 +777,9 @@ dat3$prior_likelihood_diff_mem <- dat3$prior_weight_mem - dat3$likelihood_weight
 ## Clinical associations of behavior
 
 ### Prior strength
-```{r behavior_prior_associations, include=T}
+```{r behavior_prior_associations_VISUAL_SUMMARY_ONLY, include=T}
 
-# Plot mean values
+# Plot mean values for moderate prior strength
 g_prior_mean1_pswq <- dat3 %>%
     ggplot(aes(pswq, prior_mean1)) +
     geom_point() +
@@ -745,6 +814,21 @@ g_prior_mean1_hars <- dat3 %>%
           axis.line=element_line(),
           axis.ticks=element_blank())
 
+# Moderate prior strength models
+mod_prior1_pswq <- dat %>%
+    filter(trialnum == 1, abs(POS) == 1) %>%
+    mutate_at(c("prior_strength", "pswq"), scale) %>%
+    lmer(prior_strength ~ pswq + (1 | subject), .)
+mod_prior1_rsq <- dat %>%
+    filter(trialnum == 1, abs(POS) == 1) %>%
+    mutate_at(c("prior_strength", "pswq"), scale) %>%
+    lmer(prior_strength ~ rsq + (1 | subject), .)
+mod_prior1_hars <- dat %>%
+    filter(trialnum == 1, abs(POS) == 1) %>%
+    mutate_at(c("prior_strength", "pswq"), scale) %>%
+    lmer(prior_strength ~ hars + (1 | subject), .)
+
+# Plot mean values for strong prior strength
 g_prior_mean2_pswq <- dat3 %>%
     ggplot(aes(pswq, prior_mean2)) +
     geom_point() +
@@ -779,48 +863,6 @@ g_prior_mean2_hars <- dat3 %>%
           axis.line=element_line(),
           axis.ticks=element_blank())
 
-grid.arrange(g_prior_mean1_pswq, g_prior_mean1_rsq, g_prior_mean1_hars,
-             g_prior_mean2_pswq, g_prior_mean2_rsq, g_prior_mean2_hars,
-             nrow=2, ncol=3)
-
-# Mixed effects models
-dat$prior_strength <- abs(dat$prior - 0.5) * 10
-
-mod_prior_pswq <- dat %>%
-    filter(trialnum == 1, POS != 0) %>%
-    mutate_at(c("prior_strength", "pswq"), scale) %>%
-    lmer(prior_strength ~ pswq + (1 | subject), .)
-mod_prior_pswq_plot <- dat %>%
-    filter(trialnum == 1, POS != 0) %>%
-    lmer(prior_strength ~ pswq + (1 | subject), .)
-mod_prior_rsq <- dat %>%
-    filter(trialnum == 1, POS != 0) %>%
-    mutate_at(c("prior_strength", "rsq"), scale) %>%
-    lmer(prior_strength ~ rsq + (1 | subject), .)
-mod_prior_rsq_plot <- dat %>%
-    filter(trialnum == 1, POS != 0) %>%
-    lmer(prior_strength ~ rsq + (1 | subject), .)
-mod_prior_hars <- dat %>%
-    filter(trialnum == 1, POS != 0) %>%
-    mutate_at(c("prior_strength", "hars"), scale) %>%
-    lmer(prior_strength ~ hars + (1 | subject), .)
-mod_prior_hars_plot <- dat %>%
-    filter(trialnum == 1, POS != 0) %>%
-    lmer(prior_strength ~ hars + (1 | subject), .)
-
-mod_prior1_pswq <- dat %>%
-    filter(trialnum == 1, abs(POS) == 1) %>%
-    mutate_at(c("prior_strength", "pswq"), scale) %>%
-    lmer(prior_strength ~ pswq + (1 | subject), .)
-mod_prior1_rsq <- dat %>%
-    filter(trialnum == 1, abs(POS) == 1) %>%
-    mutate_at(c("prior_strength", "rsq"), scale) %>%
-    lmer(prior_strength ~ rsq + (1 | subject), .)
-mod_prior1_hars <- dat %>%
-    filter(trialnum == 1, abs(POS) == 1) %>%
-    mutate_at(c("prior_strength", "hars"), scale) %>%
-    lmer(prior_strength ~ hars + (1 | subject), .)
-
 mod_prior2_pswq <- dat %>%
     filter(trialnum == 1, abs(POS) == 2) %>%
     mutate_at(c("prior_strength", "pswq"), scale) %>%
@@ -834,385 +876,79 @@ mod_prior2_hars <- dat %>%
     mutate_at(c("prior_strength", "hars"), scale) %>%
     lmer(prior_strength ~ hars + (1 | subject), .)
 
-# Plots with model fits
-
-# pull model fit
-g_df = plot_model(mod_prior_pswq_plot, type="pred")$data
-# adjust to account for plotting only with moderate prior mean data
-adj = mean(dat3$prior_mean1, na.rm=T) - mean(g_df$predicted)
-g_df$predicted = g_df$predicted + adj
-g_df$conf.low = g_df$conf.low + adj
-g_df$conf.high = g_df$conf.high + adj
-# create beta and p values label from mixed effects model
-lab = sprintf("b=%0.2f, p=%0.2f", add_p_values_to_lmer(mod_prior_pswq)[2, 1], add_p_values_to_lmer(mod_prior_pswq)[2, 4])
-# generate plot
-g_prior_mean_pswq <- dat3 %>%
-    ggplot(aes(pswq, prior_mean1)) +
-    geom_point(size=2) +
-    geom_line(aes(x, predicted), data=g_df, color="red", size=2) +
-    geom_ribbon(aes(x=x, ymin=conf.low, ymax=conf.high), data=g_df, alpha=0.2, fill="red", color=NA, inherit.aes = FALSE) +
-    annotate(geom="text", x=30, y=0.75, label=lab, size=18/.pt, color="red") +
-    xlab("Worry (PSWQ)") +
-    ylab("Prior Weight") +
-    theme(text=element_text(size=18),
-          strip.background=element_blank(),
-          panel.background=element_blank(),
-          axis.line=element_line(),
-          axis.ticks=element_blank())
-
-# pull model fit
-g_df = plot_model(mod_prior_rsq_plot, type="pred")$data
-# adjust to account for plotting only with moderate prior mean data
-adj = mean(dat3$prior_mean1, na.rm=T) - mean(g_df$predicted)
-g_df$predicted = g_df$predicted + adj
-g_df$conf.low = g_df$conf.low + adj
-g_df$conf.high = g_df$conf.high + adj
-# create beta and p values label from mixed effects model
-lab = sprintf("b=%0.2f, p=%0.2f", add_p_values_to_lmer(mod_prior_rsq)[2, 1], add_p_values_to_lmer(mod_prior_rsq)[2, 4])
-# generate plot
-g_prior_mean_rsq <- dat3 %>%
-    ggplot(aes(rsq, prior_mean1)) +
-    geom_point(size=2) +
-    geom_line(aes(x, predicted), data=g_df, color="blue", size=2) +
-    geom_ribbon(aes(x=x, ymin=conf.low, ymax=conf.high), data=g_df, alpha=0.2, fill="blue", color=NA, inherit.aes = FALSE) +
-    annotate(geom="text", x=65, y=0.75, label=lab, size=18/.pt, color="blue") +
-    xlab("Rumination (RSQ)") +
-    ylab("Prior Weight") +
-    theme(text=element_text(size=18),
-          strip.background=element_blank(),
-          panel.background=element_blank(),
-          axis.line=element_line(),
-          axis.ticks=element_blank())
-
-# pull model fit
-g_df = plot_model(mod_prior_hars_plot, type="pred")$data
-# adjust to account for plotting only with moderate prior mean data
-adj = mean(dat3$prior_mean1, na.rm=T) - mean(g_df$predicted)
-g_df$predicted = g_df$predicted + adj
-g_df$conf.low = g_df$conf.low + adj
-g_df$conf.high = g_df$conf.high + adj
-# create beta and p values label from mixed effects model
-lab = sprintf("b=%0.2f, p=%0.2f", add_p_values_to_lmer(mod_prior_hars)[2, 1], add_p_values_to_lmer(mod_prior_hars)[2, 4])
-# generate plot
-g_prior_mean_hars <- dat3 %>%
-    ggplot(aes(hars, prior_mean1)) +
-    geom_point(size=2) +
-    geom_line(aes(x, predicted), data=g_df, color="blue", size=2) +
-    geom_ribbon(aes(x=x, ymin=conf.low, ymax=conf.high), data=g_df, alpha=0.2, fill="blue", color=NA, inherit.aes = FALSE) +
-    annotate(geom="text", x=30, y=0.75, label=lab, size=18/.pt, color="blue") +
-    xlab("Anxiety (HARS)") +
-    ylab("Prior Weight") +
-    theme(text=element_text(size=18),
-          strip.background=element_blank(),
-          panel.background=element_blank(),
-          axis.line=element_line(),
-          axis.ticks=element_blank())
-
+# grid.arrange(g_prior_mean1_pswq, g_prior_mean1_rsq, g_prior_mean1_hars,
+#              g_prior_mean2_pswq, g_prior_mean2_rsq, g_prior_mean2_hars,
+#              nrow=2, ncol=3)
 
 ```
 
-PSWQ has an inverse association with the weight given to priors (i.e., greater worry severity is associated with less weight given to the priors). In mixed-effects models, greater PSWQ is associated with lower weights for moderate priors (t=`r coef(summary(mod_prior1_pswq))[2, 3]`, p=`r get_lm_p(mod_prior1_pswq, 1)`) and strong priors (t=`r coef(summary(mod_prior2_pswq))[2, 3]`, p=`r get_lm_p(mod_prior2_pswq, 1)`). RSQ does not have an association with prior weight. HARS appears to have an inverse association with the weight give to the moderate prior, but this is not supported by mixed-effects models (t=`r round(coef(summary(mod_prior1_hars))[2, 3], 2)`, p=`r round(get_lm_p(mod_prior1_hars, 1), 2)`)
+NOTE! The following plots show the MEAN prior weight for the moderate prior only.
+The reported statistics are for trial level data, but such data does not make for an informative plot.
+
+```{r behavior_prior_associations, include=T}
+
+# PSWQ
+tmp <- dat %>%
+    filter(trialnum == 1, POS != 0) %>%
+    model_clinical_behavior(dat3, "prior_strength", "pswq", "Prior Strength", "Worry (PSWQ)", 35, 0.75, "prior_mean1")
+g_prior_pswq <- tmp$g
+mod_prior_pswq <- tmp$mod
+
+# RSQ
+tmp <- dat %>%
+    filter(trialnum == 1, POS != 0) %>%
+    model_clinical_behavior(dat3, "prior_strength", "rsq", "Prior Strength", "Rumination (RSQ)", 60, 0.75, "prior_mean1")
+g_prior_rsq <- tmp$g
+mod_prior_rsq <- tmp$mod
+
+# HARS
+tmp <- dat %>%
+    filter(trialnum == 1, POS != 0) %>%
+    model_clinical_behavior(dat3, "prior_strength", "hars", "Prior Strength", "Anxiety (HARS)", 20, 0.75, "prior_mean1")
+g_prior_hars <- tmp$g
+mod_prior_hars <- tmp$mod
+
+grid.arrange(g_prior_pswq, g_prior_rsq, g_prior_hars, nrow=1, ncol=3)
+
+```
+
+PSWQ has an inverse association with the weight given to priors (i.e., greater worry severity is associated with less weight given to the priors). In mixed-effects models, greater PSWQ is associated with lower weights (t=`r coef(summary(mod_prior_pswq))[2, 3]`, p=`r get_lm_p(mod_prior_pswq, 1)`). RSQ does not have an association with prior weight. HARS appears to have an inverse association with the weight, but this is not statistically significant (t=`r round(coef(summary(mod_prior_hars))[2, 3], 2)`, p=`r round(get_lm_p(mod_prior_hars, 1), 2)`)
 
 AI added 9/9/2025: prior1 only considers the prior when the fisherman’s in the medium position (prior2 is when he’s in the extreme condition). The model without a number is the one that considers it all and is reported.
 
 ### Model fit
 ```{r behavior_deviation_full_associations, include=T}
 
-dat$dev = abs(dat$prob_A - dat$bayes_A_full)
-
-g_dev_full_rms_pswq <- dat3 %>%
-    filter(dev_full_rms < 0.28) %>%
-    ggplot(aes(pswq, dev_full_rms)) +
-    geom_point() +
-    stat_smooth(method="lm") +
-    stat_cor(method="pearson", label.y.npc=0.1) +
-    xlab("PSWQ") +
-    ylab("Deviation (RMS)")
-g_dev_full_rms_rsq <- dat3 %>%
-    filter(dev_full_rms < 0.28) %>%
-    ggplot(aes(rsq, dev_full_rms)) +
-    geom_point() +
-    stat_smooth(method="lm") +
-    stat_cor(method="pearson", label.y.npc=0.1) +
-    xlab("RSQ") +
-    ylab("Deviation (RMS)")
-g_dev_full_rms_hars <- dat3 %>%
-    filter(dev_full_rms < 0.28) %>%
-    ggplot(aes(hars, dev_full_rms)) +
-    geom_point() +
-    stat_smooth(method="lm") +
-    stat_cor(method="pearson", label.y.npc=0.1) +
-    xlab("HARS") +
-    ylab("Deviation (RMS)")
-
-g_dev_full_abs_pswq <- dat3 %>%
-    filter(dev_full_rms < 0.22) %>%
-    ggplot(aes(pswq, dev_full_abs)) +
-    geom_point() +
-    stat_smooth(method="lm") +
-    stat_cor(method="pearson", label.y.npc=0.1) +
-    xlab("PSWQ") +
-    ylab("Deviation (abs.)")
-g_dev_full_abs_rsq <- dat3 %>%
-    filter(dev_full_rms < 0.22) %>%
-    ggplot(aes(rsq, dev_full_abs)) +
-    geom_point() +
-    stat_smooth(method="lm") +
-    stat_cor(method="pearson", label.y.npc=0.1) +
-    xlab("RSQ") +
-    ylab("Deviation (abs.)")
-g_dev_full_abs_hars <- dat3 %>%
-    filter(dev_full_rms < 0.22) %>%
-    ggplot(aes(hars, dev_full_abs)) +
-    geom_point() +
-    stat_smooth(method="lm") +
-    stat_cor(method="pearson", label.y.npc=0.1) +
-    xlab("HARS") +
-    ylab("Deviation (abs.)")
-
-grid.arrange(g_dev_full_rms_pswq, g_dev_full_rms_rsq, g_dev_full_rms_hars,
-             g_dev_full_abs_pswq, g_dev_full_abs_rsq, g_dev_full_abs_hars,
-             nrow=2, ncol=3)
-
-mod_dev_pswq = dat %>%
+# PSWQ
+tmp <- dat %>%
     filter(trialnum > 1, blocknum != 11, blocknum != 20) %>%
-    mutate_at(c("dev", "pswq"), scale) %>%
-    lmer(dev ~ pswq + (1 | subject), .)
-mod_dev_pswq_plot = dat %>%
-    filter(trialnum > 1, blocknum != 11, blocknum != 20) %>%
-    lmer(dev ~ pswq + (1 | subject), .)
-mod_dev_rsq = dat %>%
-    filter(trialnum > 1, blocknum != 11, blocknum != 20) %>%
-    mutate_at(c("dev", "rsq"), scale) %>%
-    lmer(dev ~ rsq + (1 | subject), .)
-mod_dev_rsq_plot = dat %>%
-    filter(trialnum > 1, blocknum != 11, blocknum != 20) %>%
-    lmer(dev ~ rsq + (1 | subject), .)
-mod_dev_hars = dat %>%
-    filter(trialnum > 1, blocknum != 11, blocknum != 20) %>%
-    mutate_at(c("dev", "hars"), scale) %>%
-    lmer(dev ~ hars + (1 | subject), .)
-mod_dev_hars_plot = dat %>%
-    filter(trialnum > 1, blocknum != 11, blocknum != 20) %>%
-    lmer(dev ~ hars + (1 | subject), .)
+    model_clinical_behavior(dat3, "dev", "pswq", "Deviation (abs.)", "Worry (PSWQ)", 65, 0.22, "dev_full_abs")
+g_dev_abs_pswq <- tmp$g
+mod_dev_abs_pswq <- tmp$mod
 
+# RSQ
+tmp <- dat %>%
+    filter(trialnum > 1, blocknum != 11, blocknum != 20) %>%
+    model_clinical_behavior(dat3, "dev", "rsq", "Deviation (abs.)", "Rumination (RSQ)", 25, 0.22, "dev_full_abs")
+g_dev_abs_rsq <- tmp$g
+mod_dev_abs_rsq <- tmp$mod
 
-# pull model fit
-g_df = plot_model(mod_dev_pswq_plot, type="pred")$data
-# create beta and p values label from mixed effects model
-lab = sprintf("b=%0.2f, p=%0.2f", add_p_values_to_lmer(mod_dev_pswq)[2, 1], add_p_values_to_lmer(mod_dev_pswq)[2, 4])
-# generate plot
-g_dev_abs_pswq <- dat3 %>%
-    ggplot(aes(pswq, dev_full_abs)) +
-    geom_point(size=2) +
-    geom_line(aes(x, predicted), data=g_df, color="blue", size=2) +
-    geom_ribbon(aes(x=x, ymin=conf.low, ymax=conf.high), data=g_df, alpha=0.2, fill="blue", color=NA, inherit.aes = FALSE) +
-    annotate(geom="text", x=65, y=0.22, label=lab, size=18/.pt, color="blue") +
-    xlab("Worry (PSWQ)") +
-    ylab("Deviation (abs.)") +
-    theme(text=element_text(size=18),
-          strip.background=element_blank(),
-          panel.background=element_blank(),
-          axis.line=element_line(),
-          axis.ticks=element_blank())
+# HARS
+tmp <- dat %>%
+    filter(trialnum > 1, blocknum != 11, blocknum != 20) %>%
+    model_clinical_behavior(dat3, "dev", "hars", "Deviation (abs.)", "Anxiety (HARS)", 60, 0.21, "dev_full_abs")
+g_dev_abs_hars <- tmp$g
+mod_dev_abs_hars <- tmp$mod
 
-# pull model fit
-g_df = plot_model(mod_dev_rsq_plot, type="pred")$data
-# create beta and p values label from mixed effects model
-lab = sprintf("b=%0.2f, p=%0.2f", add_p_values_to_lmer(mod_dev_rsq)[2, 1], add_p_values_to_lmer(mod_dev_rsq)[2, 4])
-# generate plot
-g_dev_abs_rsq <- dat3 %>%
-    ggplot(aes(rsq, dev_full_abs)) +
-    geom_point(size=2) +
-    geom_line(aes(x, predicted), data=g_df, color="blue", size=2) +
-    geom_ribbon(aes(x=x, ymin=conf.low, ymax=conf.high), data=g_df, alpha=0.2, fill="blue", color=NA, inherit.aes = FALSE) +
-    annotate(geom="text", x=60, y=0.22, label=lab, size=18/.pt, color="blue") +
-    xlab("Rumination (RSQ)") +
-    ylab("Deviation (abs.)") +
-    theme(text=element_text(size=18),
-          strip.background=element_blank(),
-          panel.background=element_blank(),
-          axis.line=element_line(),
-          axis.ticks=element_blank())
-
-# pull model fit
-g_df = plot_model(mod_dev_hars_plot, type="pred")$data
-# create beta and p values label from mixed effects model
-lab = sprintf("b=%0.2f, p=%0.2f", add_p_values_to_lmer(mod_dev_hars)[2, 1], add_p_values_to_lmer(mod_dev_hars)[2, 4])
-# generate plot
-g_dev_abs_hars <- dat3 %>%
-    ggplot(aes(hars, dev_full_abs)) +
-    geom_point(size=2) +
-    geom_line(aes(x, predicted), data=g_df, color="blue", size=2) +
-    geom_ribbon(aes(x=x, ymin=conf.low, ymax=conf.high), data=g_df, alpha=0.2, fill="blue", color=NA, inherit.aes = FALSE) +
-    annotate(geom="text", x=25, y=0.21, label=lab, size=18/.pt, color="blue") +
-    xlab("Anxiety (HARS)") +
-    ylab("Deviation (abs.)") +
-    theme(text=element_text(size=18),
-          strip.background=element_blank(),
-          panel.background=element_blank(),
-          axis.line=element_line(),
-          axis.ticks=element_blank())
-
+grid.arrange(g_dev_abs_pswq, g_dev_abs_rsq, g_dev_abs_hars, nrow=1, ncol=3)
 
 ```
 
 There does not appear to be any association between deviations from the Bayesian fully optimal updates and PSWQ, RSQ, or HARS.
 
-```{r behavior_deviation_partial_associations, include=T}
-
-g_dev_partial_rms_pswq <- dat3 %>%
-    filter(dev_full_rms < 0.22) %>%
-    ggplot(aes(pswq, dev_partial_rms)) +
-    geom_point() +
-    stat_smooth(method="lm") +
-    stat_cor(method="pearson", label.y.npc=0.1) +
-    xlab("PSWQ") +
-    ylab("Deviation (RMS)")
-g_dev_partial_rms_rsq <- dat3 %>%
-    filter(dev_full_rms < 0.22) %>%
-    ggplot(aes(rsq, dev_partial_rms)) +
-    geom_point() +
-    stat_smooth(method="lm") +
-    stat_cor(method="pearson", label.y.npc=0.1) +
-    xlab("RSQ") +
-    ylab("Deviation (RMS)")
-g_dev_partial_rms_hars <- dat3 %>%
-    filter(dev_full_rms < 0.22) %>%
-    ggplot(aes(hars, dev_partial_rms)) +
-    geom_point() +
-    stat_smooth(method="lm") +
-    stat_cor(method="pearson", label.y.npc=0.1) +
-    xlab("HARS") +
-    ylab("Deviation (RMS)")
-
-g_dev_partial_abs_pswq <- dat3 %>%
-    filter(dev_full_rms < 0.17) %>%
-    ggplot(aes(pswq, dev_partial_abs)) +
-    geom_point() +
-    stat_smooth(method="lm") +
-    stat_cor(method="pearson", label.y.npc=0.1) +
-    xlab("PSWQ") +
-    ylab("Deviation (abs.)")
-g_dev_partial_abs_rsq <- dat3 %>%
-    filter(dev_full_rms < 0.17) %>%
-    ggplot(aes(rsq, dev_partial_abs)) +
-    geom_point() +
-    stat_smooth(method="lm") +
-    stat_cor(method="pearson", label.y.npc=0.1) +
-    xlab("RSQ") +
-    ylab("Deviation (abs.)")
-g_dev_partial_abs_hars <- dat3 %>%
-    filter(dev_full_rms < 0.17) %>%
-    ggplot(aes(hars, dev_partial_abs)) +
-    geom_point() +
-    stat_smooth(method="lm") +
-    stat_cor(method="pearson", label.y.npc=0.1) +
-    xlab("HARS") +
-    ylab("Deviation (abs.)")
-
-grid.arrange(g_dev_partial_rms_pswq, g_dev_partial_rms_rsq, g_dev_partial_rms_hars,
-             g_dev_partial_abs_pswq, g_dev_partial_abs_rsq, g_dev_partial_abs_hars,
-             nrow=2, ncol=3)
-
-```
-
-```{r behavior_kl_associations, include=T}
-
-g_kl_total_full_pswq <- dat3 %>%
-    ggplot(aes(pswq, log(kl_total_full))) +
-    geom_point() +
-    stat_smooth(method="lm") +
-    stat_cor(method="pearson", label.y.npc=0.1) +
-    xlab("PSWQ") +
-    ylab("KL Div. (log, full)")
-g_kl_total_full_rsq <- dat3 %>%
-    ggplot(aes(rsq, log(kl_total_full))) +
-    geom_point() +
-    stat_smooth(method="lm") +
-    stat_cor(method="pearson", label.y.npc=0.1) +
-    xlab("RSQ") +
-    ylab("KL Div. (log, full)")
-g_kl_total_full_hars <- dat3 %>%
-    ggplot(aes(hars, log(kl_total_full))) +
-    geom_point() +
-    stat_smooth(method="lm") +
-    stat_cor(method="pearson", label.y.npc=0.1) +
-    xlab("HARS") +
-    ylab("KL Div. (log, full)")
-
-g_kl_total_partial_pswq <- dat3 %>%
-    ggplot(aes(pswq, log(kl_total_partial))) +
-    geom_point() +
-    stat_smooth(method="lm") +
-    stat_cor(method="pearson", label.y.npc=0.1) +
-    xlab("PSWQ") +
-    ylab("KL Div. (log, partial)")
-g_kl_total_partial_rsq <- dat3 %>%
-    ggplot(aes(rsq, log(kl_total_partial))) +
-    geom_point() +
-    stat_smooth(method="lm") +
-    stat_cor(method="pearson", label.y.npc=0.1) +
-    xlab("RSQ") +
-    ylab("KL Div. (log, partial)")
-g_kl_total_partial_hars <- dat3 %>%
-    ggplot(aes(hars, log(kl_total_partial))) +
-    geom_point() +
-    stat_smooth(method="lm") +
-    stat_cor(method="pearson", label.y.npc=0.1) +
-    xlab("HARS") +
-    ylab("KL Div. (log, partial)")
-
-grid.arrange(g_kl_total_full_pswq, g_kl_total_full_rsq, g_kl_total_full_hars,
-             g_kl_total_partial_pswq, g_kl_total_partial_rsq, g_kl_total_partial_hars,
-             nrow=2, ncol=3)
-
-
-mod_klFullLog_pswq <- dat3 %>%
-    mutate_at(c("kl_total_full"), log) %>%
-    mutate_at(c("kl_total_full", "pswq"), scale) %>%
-    lm(kl_total_full ~ pswq, .)
-mod_klFullLog_rsq <- dat3 %>%
-    mutate_at(c("kl_total_full"), log) %>%
-    mutate_at(c("kl_total_full", "rsq"), scale) %>%
-    lm(kl_total_full ~ rsq, .)
-mod_klFullLog_hars <- dat3 %>%
-    mutate_at(c("kl_total_full"), log) %>%
-    mutate_at(c("kl_total_full", "hars"), scale) %>%
-    lm(kl_total_full ~ hars, .)
-
-```
-
-There does not appear to be any association between KL divergence from the Bayesian optimal updates and PSWQ, RSQ, or HARS. Also true when looking at KL divergence block-wise, though these measures are notably noisy.
-
 ### Bayesian parameterization
 
 ```{r behavior_prior_mod_associations, include=T}
-
-g_prior_weight_lm_pswq <- dat3 %>%
-    filter(prior_weight_lm > 0.25) %>% 
-    ggplot(aes(pswq, prior_weight_lm)) +
-    geom_point() +
-    stat_smooth(method="lm") +
-    stat_cor(method="pearson", label.y.npc=0.1) +
-    xlab("PSWQ") +
-    ylab("Prior Weight (lm)")
-g_prior_weight_lm_rsq <- dat3 %>%
-    filter(prior_weight_lm > 0.25) %>% 
-    ggplot(aes(rsq, prior_weight_lm)) +
-    geom_point() +
-    stat_smooth(method="lm") +
-    stat_cor(method="pearson", label.y.npc=0.1) +
-    xlab("RSQ") +
-    ylab("Prior Weight (lm)")
-g_prior_weight_lm_hars <- dat3 %>%
-    filter(prior_weight_lm > 0.25) %>% 
-    ggplot(aes(hars, prior_weight_lm)) +
-    geom_point() +
-    stat_smooth(method="lm") +
-    stat_cor(method="pearson", label.y.npc=0.1) +
-    xlab("HARS") +
-    ylab("Prior Weight (lm)")
 
 g_prior_weight_mem_pswq <- dat3 %>%
     filter(prior_weight_mem > 0.25) %>% 
@@ -1239,39 +975,13 @@ g_prior_weight_mem_hars <- dat3 %>%
     xlab("HARS") +
     ylab("Prior Weight (mem)")
 
-grid.arrange(g_prior_weight_lm_pswq, g_prior_weight_lm_rsq, g_prior_weight_lm_hars,
-             g_prior_weight_mem_pswq, g_prior_weight_mem_rsq, g_prior_weight_mem_hars,
-             nrow=2, ncol=3)
+grid.arrange(g_prior_weight_mem_pswq, g_prior_weight_mem_rsq, g_prior_weight_mem_hars,
+             nrow=1, ncol=3)
 
 ```
 
 
 ```{r behavior_likelihood_mod_associations, include=T}
-
-g_likelihood_weight_lm_pswq <- dat3 %>%
-    filter(likelihood_weight_lm < 0.88) %>% 
-    ggplot(aes(pswq, likelihood_weight_lm)) +
-    geom_point() +
-    stat_smooth(method="lm") +
-    stat_cor(method="pearson", label.y.npc=0.9) +
-    xlab("PSWQ") +
-    ylab("Likelihood Weight (lm)")
-g_likelihood_weight_lm_rsq <- dat3 %>%
-    filter(likelihood_weight_lm < 0.88) %>% 
-    ggplot(aes(rsq, likelihood_weight_lm)) +
-    geom_point() +
-    stat_smooth(method="lm") +
-    stat_cor(method="pearson", label.y.npc=0.9) +
-    xlab("RSQ") +
-    ylab("Likelihood Weight (lm)")
-g_likelihood_weight_lm_hars <- dat3 %>%
-    filter(likelihood_weight_lm < 0.88) %>% 
-    ggplot(aes(hars, likelihood_weight_lm)) +
-    geom_point() +
-    stat_smooth(method="lm") +
-    stat_cor(method="pearson", label.y.npc=0.9) +
-    xlab("HARS") +
-    ylab("Likelihood Weight (lm)")
 
 g_likelihood_weight_mem_pswq <- dat3 %>%
     filter(likelihood_weight_mem < 0.88) %>% 
@@ -1299,8 +1009,7 @@ g_likelihood_weight_mem_hars <- dat3 %>%
     ylab("Likelihood Weight (mem)")
 
 grid.arrange(g_likelihood_weight_lm_pswq, g_likelihood_weight_lm_rsq, g_likelihood_weight_lm_hars,
-             g_likelihood_weight_mem_pswq, g_likelihood_weight_mem_rsq, g_likelihood_weight_mem_hars,
-             nrow=2, ncol=3)
+             nrow=1, ncol=3)
 
 ```
 
@@ -1318,31 +1027,6 @@ mod_updateStrengthMEM_hars <- dat3 %>%
     filter(prior_likelihood_diff_mem > -0.75) %>%
     mutate_at(c("prior_likelihood_diff_mem", "hars"), scale) %>%
     lm(prior_likelihood_diff_mem ~ hars, .)
-
-g_prior_likelihood_diff_lm_pswq <- dat3 %>%
-    filter(prior_likelihood_diff_lm < 6) %>%
-    ggplot(aes(pswq, prior_likelihood_diff_lm)) +
-    geom_point() +
-    stat_smooth(method="lm") +
-    stat_cor(method="pearson", label.y.npc=0.9) +
-    xlab("PSWQ") +
-    ylab("L-P Weight Diff (lm)")
-g_prior_likelihood_diff_lm_rsq <- dat3 %>%
-    filter(prior_likelihood_diff_lm < 6) %>%
-    ggplot(aes(rsq, prior_likelihood_diff_lm)) +
-    geom_point() +
-    stat_smooth(method="lm") +
-    stat_cor(method="pearson", label.y.npc=0.9) +
-    xlab("RSQ") +
-    ylab("L-P Weight Diff (lm)")
-g_prior_likelihood_diff_lm_hars <- dat3 %>%
-    filter(prior_likelihood_diff_lm < 6) %>%
-    ggplot(aes(hars, prior_likelihood_diff_lm)) +
-    geom_point() +
-    stat_smooth(method="lm") +
-    stat_cor(method="pearson", label.y.npc=0.9) +
-    xlab("HARS") +
-    ylab("L-P Weight Diff (lm)")
 
 lab = sprintf("b=%0.2f, p=%0.2f", coef(summary(mod_updateStrengthMEM_pswq))[2, 1], coef(summary(mod_updateStrengthMEM_pswq))[2, 4])
 g_prior_likelihood_diff_mem_pswq <- dat3 %>%
@@ -1387,9 +1071,8 @@ g_prior_likelihood_diff_mem_hars <- dat3 %>%
           axis.line=element_line(),
           axis.ticks=element_blank())
 
-grid.arrange(g_prior_likelihood_diff_lm_pswq, g_prior_likelihood_diff_lm_rsq, g_prior_likelihood_diff_lm_hars,
-             g_prior_likelihood_diff_mem_pswq, g_prior_likelihood_diff_mem_rsq, g_prior_likelihood_diff_mem_hars,
-             nrow=2, ncol=3)
+grid.arrange(g_prior_likelihood_diff_mem_pswq, g_prior_likelihood_diff_mem_rsq, g_prior_likelihood_diff_mem_hars,
+             nrow=1, ncol=3)
 
 
 ```
