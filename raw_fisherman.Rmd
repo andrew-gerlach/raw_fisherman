@@ -20,6 +20,9 @@ library(lme4)
 library(ggpubr)
 library(sjPlot)
 library(grid)
+library(corrplot)
+library(RColorBrewer)
+library(Hmisc)
 
 ################################################################################
 # print message or blank line if empty                                         #
@@ -145,10 +148,10 @@ model_clinical_behavior <- function(dat, dat3, behav, clin, behav_label, clin_la
 ```{r options, include=TRUE}
 
 # file containing task data
-task_data_file <- "~/Fellowship/projects/raw/data/gerlachar_argo_decision_making_fisherman_ipad_raw_2507111521.xlsx"
+task_data_file <- "/Users/angela/OneDrive\ -\ UPMC/Documents/Research/Fisherman_Andrew/gerlachar_argo_decision_making_fisherman_ipad_raw_2507111521.xlsx"
 
 # file containing study data
-clin_data_file <- "~/Fellowship/projects/raw/data/RAW_study_data.xlsx"
+clin_data_file <- "/Users/angela/OneDrive\ -\ UPMC/Documents/Research/Fisherman_Andrew/RAW_study_data.xlsx"
 
 # exclusion criteria from 0 (most relaxed) to 2 (most stringent)
 stringent <- 1
@@ -1008,7 +1011,7 @@ g_likelihood_weight_mem_hars <- dat3 %>%
     xlab("HARS") +
     ylab("Likelihood Weight (mem)")
 
-grid.arrange(g_likelihood_weight_lm_pswq, g_likelihood_weight_lm_rsq, g_likelihood_weight_lm_hars,
+grid.arrange(g_likelihood_weight_mem_pswq, g_likelihood_weight_mem_rsq, g_likelihood_weight_mem_hars,
              nrow=1, ncol=3)
 
 ```
@@ -1023,10 +1026,19 @@ mod_updateStrengthMEM_rsq <- dat3 %>%
     filter(prior_likelihood_diff_mem > -0.75) %>%
     mutate_at(c("prior_likelihood_diff_mem", "rsq"), scale) %>%
     lm(prior_likelihood_diff_mem ~ rsq, .)
+mod_updateStrengthMEM_pswq_rsq <- dat3 %>%
+    filter(prior_likelihood_diff_mem > -0.75) %>%
+    mutate_at(c("prior_likelihood_diff_mem", "pswq", "rsq"), scale) %>%
+    lm(prior_likelihood_diff_mem ~ pswq + rsq, .)
 mod_updateStrengthMEM_hars <- dat3 %>%
     filter(prior_likelihood_diff_mem > -0.75) %>%
     mutate_at(c("prior_likelihood_diff_mem", "hars"), scale) %>%
     lm(prior_likelihood_diff_mem ~ hars, .)
+mod_updateStrengthMEM_pswq_rsq_hars <- dat3 %>%
+    filter(prior_likelihood_diff_mem > -0.75) %>%
+    mutate_at(c("prior_likelihood_diff_mem", "pswq", "rsq", "hars"), scale) %>%
+    lm(prior_likelihood_diff_mem ~ pswq + rsq + hars, .)
+summary(mod_updateStrengthMEM_pswq_rsq_hars)
 
 lab = sprintf("b=%0.2f, p=%0.2f", coef(summary(mod_updateStrengthMEM_pswq))[2, 1], coef(summary(mod_updateStrengthMEM_pswq))[2, 4])
 g_prior_likelihood_diff_mem_pswq <- dat3 %>%
@@ -1136,6 +1148,7 @@ dat3$prior_likelihood_diff_mem <- dat3$prior_weight_mem - dat3$likelihood_weight
 
 Behavioral variables of interest: prior_strength (from dat), prior_mean? (from dat3), prior_likelihood_diff_mem (from dat3; this is subject specific, not trialwise)
 Update strength: dat3$prior_likelihood_diff_mem <- dat3$prior_weight_mem - dat3$likelihood_weight_mem 
+Deviation from bayesian optimal and prior weight are trial specific, update strength is subject specific
 
 Cognitive variables of interest, from Andrea:
 Visuospatial, skeptical eye: line orientation, figure copy - 
@@ -1166,122 +1179,95 @@ Attention: digit span, coding - sensitive, may be good
 ```{r gather_cognitive_data, include=T}
 
 # Merge cognitive data with behavioral dataframe
-clin_dat <- clin_dat %>% rename(subject=raw_id)
+if ("raw_id" %in% colnames(clin_dat)) {
+  clin_dat <- clin_dat %>% rename(subject=raw_id)
+}
+
 #select_clin_dat <- clin_dat %>% select(subject, vcis, line_z, mfigcopy_z, listtotal, storytotal_z, dspan_z, imis, diffss, cwi3cssfinal, cwi4cssfinal, coding_z)
-select_clin_dat <- clin_dat %>% select(subject, vcis, line, mfigcopy, listtotal, storytotal_z, dspan_z, imis, diffss, cwi3cssfinal, cwi4cssfinal, coding_z)
+select_clin_dat <- clin_dat %>% select(subject, vcis, line_z, mfigcopy_z, listtotal, storytotal_z, dspan_z, imis, diffss, cwi3cssfinal, cwi4cssfinal, coding_z)
 
 # get rid of dummy coded variables
 select_clin_dat[select_clin_dat==995] <- NA 
 select_clin_dat[select_clin_dat==999] <- NA 
 select_clin_dat[select_clin_dat==95] <- NA 
 
-# Calculate the average executive function measure
-select_clin_dat <- select_clin_dat %>% group_by(subject) %>%
-  mutate(
-    avg_EF = mean(c(diffss, cwi3cssfinal, cwi4cssfinal), na.rm=TRUE)
-  ) %>% ungroup()
-# Transform variables that need to be
-select_clin_dat <- select_clin_dat %>% mutate(
-  #ln_line_z = log(line_z),
-  #ln_mfigcopy_z = log(mfigcopy_z)
-  adj_line = max(line, na.rm = TRUE) + 1 - line,
-  ln_adj_line = log(adj_line),
-  #sqrt_adj_line = sqrt(adj_line),
-  #cubrt_adj_line = adj_line^(1/3),
-  #inv_adj_line = adj_line^(-1),
-  #inv_line = line^(-1),
-  adj_mfigcopy = max(mfigcopy, na.rm=TRUE) + 1 - mfigcopy,
-  ln_adj_mfigcopy = log(adj_mfigcopy),
-  #sqrt_adj_mfigcopy = sqrt(adj_mfigcopy),
-  #cubrt_adj_mfigcopy = adj_mfigcopy^(1/3),
-  #inv_adj_mfigcopy = adj_mfigcopy^(-1),
-  #inv_mfigcopy = mfigcopy^(-1)
-)
+#Calculate indices for cognitive domains
+select_clin_dat <- select_clin_dat %>% mutate (
+  #visuospatial
+  vcis_sc = as.vector(scale(vcis)),
+  line_sc = as.vector(scale(line_z)),
+  mfigcopy_sc = as.vector(scale(mfigcopy_z)),
+  visuospatial_index = rowMeans(cbind(vcis_sc, line_sc, mfigcopy_sc), na.rm=TRUE),
+  visuospatial_index_sc = as.vector(scale(visuospatial_index)),
+  ln_adj_visuospatial_index_sc = as.vector(scale(log(max(visuospatial_index, na.rm = TRUE) + 1 - visuospatial_index))),
+  #working memory
+  listtotal_sc = as.vector(scale(listtotal)),
+  storytotal_sc = as.vector(scale(storytotal_z)),
+  dspan_sc = as.vector(scale(dspan_z)),
+  imis_sc = as.vector(scale(imis)),
+  working_memory_index = rowMeans(cbind(listtotal_sc, storytotal_sc, dspan_sc, imis_sc), na.rm=TRUE),
+  working_memory_index_sc = as.vector(scale(working_memory_index)),
+  #executive functioning
+  diffss_sc = as.vector(scale(diffss)),
+  cwi3cssfinal_sc = as.vector(scale(cwi3cssfinal)),
+  cwi4cssfinal_sc = as.vector(scale(cwi4cssfinal)),
+  executive_functioning_index = rowMeans(cbind(diffss_sc, cwi3cssfinal_sc, cwi4cssfinal_sc), na.rm=TRUE),
+  executive_functioning_index_sc = as.vector(scale(executive_functioning_index)),
+  #attention
+  coding_sc = as.vector(scale(coding_z)),
+  attention_index = rowMeans(cbind(dspan_sc, coding_sc), na.rm=TRUE),
+  attention_index_sc = as.vector(scale(attention_index)))
+  
 
-# Create histograms to check the data
-p1  <- ggplot(select_clin_dat, aes(x = vcis)) + geom_histogram(fill = "gray", color = "black", bins = 20) + theme_minimal(base_size = 18) 
-p2  <- ggplot(select_clin_dat, aes(x = ln_adj_line)) + geom_histogram(fill = "gray", color = "black", bins = 20) + theme_minimal(base_size = 18)
-p3  <- ggplot(select_clin_dat, aes(x = ln_adj_mfigcopy)) + geom_histogram(fill = "gray", color = "black", bins = 20) + theme_minimal(base_size = 18)
-grid.arrange(p1, p2, p3, ncol = 2, top = textGrob("Visuospatial Measures", gp = gpar(fontsize = 20, fontface = "bold"))) # line and mfigcopy have prominent ceiling effects
+p1 <- ggplot(select_clin_dat, aes(x = visuospatial_index_sc)) + geom_histogram(fill = "gray", color = "black", bins = 20) + theme_minimal(base_size = 18)
+p1a <- ggplot(select_clin_dat, aes(x = ln_adj_visuospatial_index_sc)) + geom_histogram(fill = "gray", color = "black", bins = 20) + theme_minimal(base_size = 18)
+p2 <- ggplot(select_clin_dat, aes(x = working_memory_index_sc)) + geom_histogram(fill = "gray", color = "black", bins = 20) + theme_minimal(base_size = 18)
+p3 <- ggplot(select_clin_dat, aes(x = executive_functioning_index_sc)) + geom_histogram(fill = "gray", color = "black", bins = 20) + theme_minimal(base_size = 18)
+p4 <- ggplot(select_clin_dat, aes(x = attention_index_sc)) + geom_histogram(fill = "gray", color = "black", bins = 20) + theme_minimal(base_size = 18)
+grid.arrange(p1a, p2, p3, p4, ncol = 2, top = textGrob("Attention Measures", gp = gpar(fontsize = 20, fontface = "bold")))
 
-p4  <- ggplot(select_clin_dat, aes(x = listtotal)) +  geom_histogram(fill = "gray", color = "black", bins = 20) + theme_minimal(base_size = 18)
-p5  <- ggplot(select_clin_dat, aes(x = storytotal_z)) + geom_histogram(fill = "gray", color = "black", bins = 20) + theme_minimal(base_size = 18)
-p6  <- ggplot(select_clin_dat, aes(x = dspan_z)) +  geom_histogram(fill = "gray", color = "black", bins = 20) + theme_minimal(base_size = 18)
-p7  <- ggplot(select_clin_dat, aes(x = imis)) + geom_histogram(fill = "gray", color = "black", bins = 20) + theme_minimal(base_size = 18)
-grid.arrange(p4, p5, p6, p7, ncol = 2, top = textGrob("Working Memory Measures", gp = gpar(fontsize = 20, fontface = "bold")))
-
-p8  <- ggplot(select_clin_dat, aes(x = diffss)) + geom_histogram(fill = "gray", color = "black", bins = 20) + theme_minimal(base_size = 18)
-p9  <- ggplot(select_clin_dat, aes(x = cwi3cssfinal)) + geom_histogram(fill = "gray", color = "black", bins = 20) + theme_minimal(base_size = 18)
-p10 <- ggplot(select_clin_dat, aes(x = cwi4cssfinal)) + geom_histogram(fill = "gray", color = "black", bins = 20) + theme_minimal(base_size = 18)
-p11 <- ggplot(select_clin_dat, aes(x = avg_EF)) + geom_histogram(fill = "gray", color = "black", bins = 20) + theme_minimal(base_size = 18)
-grid.arrange(p8, p9, p10, p11, ncol = 2, top = textGrob("Executive Function Measures", gp = gpar(fontsize = 20, fontface = "bold")))
-
-p12 <- ggplot(select_clin_dat, aes(x = dspan_z)) + geom_histogram(fill = "gray", color = "black", bins = 20) + theme_minimal(base_size = 18)
-p13 <- ggplot(select_clin_dat, aes(x = coding_z)) + geom_histogram(fill = "gray", color = "black", bins = 20) + theme_minimal(base_size = 18)
-grid.arrange(p12, p13, ncol = 1, top = textGrob("Attention Measures", gp = gpar(fontsize = 20, fontface = "bold")))
-
-
-# Merge dataframes
-dat3 <- left_join(dat3,select_clin_dat,by="subject")
-dat <- left_join(dat,select_clin_dat,by="subject")
+# Merge dataframes if haven't already
+if (!("visuospatial_index" %in% colnames(dat3))) {
+  dat3 <- left_join(dat3,select_clin_dat,by="subject")}
+if (!("visuospatial_index" %in% colnames(dat))) {
+  dat <- left_join(dat,select_clin_dat,by="subject")}
 
 ```
 
+## Cognitive data basic correlations
+```{r cognition_correlations, include=T, fig.width=12, fig.height=10}
 
-```{r cognitive_data_correlations, include=T, fig.width=12, fig.height=10}
 # Test broadly for correlations
-library(corrplot)
-library(RColorBrewer)
-
 #dat_cog <- dat %>% select(edu.x,prior_strength)
-dat_age_prior <- dat %>% select(subject,age,edu,dev,prior_strength) #don't think we can use prior strength here
-dat3_wage <- left_join(dat_age_prior,dat3,by="subject")
-dat3_cog <- dat3_wage %>% 
+#dat_age_prior <- dat %>% select(subject,age,edu,prior_strength) #don't think we can use prior strength here
+dat_age_prior <- dat %>% select(subject,age,edu) %>% unique() #don't think we can use prior strength here
+dat3_wage <- left_join(dat_age_prior,dat3,by="subject") 
+dat3_cog <- dat3_wage %>%
   mutate(edu_sc = scale(edu),
          age_sc = scale(age),
          pswq_sc = scale(pswq),
          rsq_sc = scale(rsq),
-         dev_sc = scale(dev), # subject level deviation from the bayesian model (measure of performance)
-         prior_strength_sc = scale(prior_strength),
-         prior_likelihood_diff_mem_sc = scale(prior_likelihood_diff_mem),
-         vcis_sc = scale(vcis),
-         ln_adj_line_sc = scale(ln_adj_line),
-         ln_adj_mfigcopy_sc = scale(ln_adj_mfigcopy),
-         listtotal_sc = scale(listtotal),
-         storytotal_z_sc = scale(storytotal_z),
-         dspan_z_sc = scale(dspan_z),
-         imis_sc = scale(imis),
-         diffss_sc = scale(diffss),
-         cwi3cssfinal_sc = scale(cwi3cssfinal),
-         cwi4cssfinal_sc = scale(cwi4cssfinal),
-         avg_EF_sc = scale(avg_EF),
-         coding_z_sc = scale(coding_z)
-         ) %>%
+         dev_sc = scale(dev_full_rms), # subject level deviation from the bayesian model (measure of performance)
+         prior_strength_sc = scale(prior_mean1), #in mixed effects use prior_strength when POS not equal to zero
+         prior_likelihood_diff_mem_sc = scale(prior_likelihood_diff_mem)) %>% 
   select(age_sc, edu_sc, pswq_sc, rsq_sc, dev_sc, 
-         prior_strength, prior_likelihood_diff_mem, prior_strength_sc, prior_likelihood_diff_mem_sc, 
-         vcis_sc, ln_adj_line_sc, ln_adj_mfigcopy_sc, listtotal_sc, storytotal_z_sc,
-         dspan_z_sc, imis_sc, diffss_sc, cwi3cssfinal_sc, cwi4cssfinal_sc,
-         avg_EF_sc, coding_z_sc)
-#dat3_cog <- dat3_wage %>% select(edu,pswq,rsq,prior_strength,prior_likelihood_diff_mem,prior_weight_mem, likelihood_weight_mem, marginal_weight_mem, mtotal,mtotalis,ais,lis,vcis,imis,dspan_z) %>%
-#  mutate(edu_z = scale(edu),
-#         prior_strength_z = scale(prior_strength),
-#         prior_likelihood_diff_mem_z = scale(prior_likelihood_diff_mem),
-#         mtotal_z = scale(mtotal),
-#         mtotalis_z = scale(mtotalis),
-#         ais_z = scale(ais),
-#         lis_z = scale(lis),
-#         vcis_z = scale(vcis),
-#         imis_z = scale(imis),
-#         dspan_z_z = scale(dspan_z)) %>%
-#  select(edu_z, prior_strength, prior_likelihood_diff_mem, prior_weight_mem, likelihood_weight_mem, marginal_weight_mem, mtotal_z, mtotalis_z,
-#         ais_z, lis_z, vcis_z, imis_z, pswq, rsq)
+         prior_strength_sc, prior_likelihood_diff_mem_sc, 
+         vcis_sc, line_sc, mfigcopy_sc, visuospatial_index, visuospatial_index_sc, ln_adj_visuospatial_index_sc,
+         listtotal_sc, storytotal_sc, dspan_sc, imis_sc, working_memory_index, working_memory_index_sc,
+         diffss_sc, cwi3cssfinal_sc, cwi4cssfinal_sc, executive_functioning_index, executive_functioning_index_sc,
+         coding_sc, attention_index, attention_index_sc)
+
+#if want to filter down:
+dat3_cog <- dat3_cog %>%
+  select(age_sc, edu_sc, pswq_sc, rsq_sc, dev_sc, 
+         prior_strength_sc, prior_likelihood_diff_mem_sc, ln_adj_visuospatial_index_sc,
+         working_memory_index_sc, executive_functioning_index_sc, attention_index_sc)
 
 # https://www.sthda.com/english/wiki/correlation-analyses-in-r
 M1 <- cor(dat3_cog,use="complete.obs")
 corrplot(M1, type="upper", col=colorRampPalette(c("blue", "white", "red"))(200))
 
 # To get correlation matrix with p-values
-library(Hmisc)
 dat3_matrix <- as.matrix(dat3_cog)
 pearson_correlation_results <- rcorr(dat3_matrix, type="pearson") #or spearman
 pearson_p_values <- pearson_correlation_results$P
@@ -1290,75 +1276,347 @@ spearman_p_values <- spearman_correlation_results$P
 
 #only keep significant results
 pearson_sig_results <- pearson_correlation_results
-pearson_sig_results$r[pearson_correlation_results$P>0.00714]=NA #multiple comparisons
+pearson_sig_results$r[pearson_correlation_results$P>0.05]=NA #really liberal significance thresholding for visualization
 
+corrplot(pearson_correlation_results$r, type="upper", col=rev(brewer.pal(n=8, name="RdYlBu"))) 
 
-corrplot(pearson_correlation_results$r, type="upper", col=brewer.pal(n=8, name="BuYlRd")) #"RdYlBu"
-#corrplot(pearson_p_values, type="upper", col=brewer.pal(n=8, name="RdYlBu"))
 ```
 
 
-```{r cognitive_regression, include=T}
-#Multiple regression
-prior_model <- lm(prior_strength_sc ~ vcis_sc + ln_adj_line_sc + ln_adj_mfigcopy_sc + 
-                    listtotal_sc + storytotal_z_sc + dspan_z_sc + imis_sc +
-                    diffss_sc + avg_EF_sc + coding_z_sc,
-                  data = dat3_cog)
+## Cognition Regression - individual cognitive measures
+```{r cognition_regression, include=T}
+#Multiple regressions
+perf_model <- lm(dev_sc ~ ln_adj_visuospatial_index_sc + working_memory_index_sc + 
+                   executive_functioning_index_sc + attention_index_sc, data = dat3_cog)
+summary(perf_model)
+car::vif(perf_model) 
+
+prior_model <- lm(prior_strength_sc ~ ln_adj_visuospatial_index_sc + working_memory_index_sc + 
+                   executive_functioning_index_sc + attention_index_sc, data = dat3_cog)
+car::vif(prior_model)
 summary(prior_model)
 
-#update_model <- lm(prior_likelihood_diff_mem ~ mtotal_z + mtotalis_z + ais_z + lis_z + vcis_z + imis_z + dspan_z_z,data = dat3_cog)
-update_model <- lm(prior_likelihood_diff_mem ~ ais_z + lis_z + vcis_z + imis_z, data = dat3_cog)
+update_model <- lm(prior_likelihood_diff_mem_sc ~ ln_adj_visuospatial_index_sc + working_memory_index_sc + 
+                   executive_functioning_index_sc + attention_index_sc, data = dat3_cog)
+car::vif(update_model)
 summary(update_model)
-
 
 # Add in rumination and worry
-#prior_model <- lm(prior_strength ~ scale(pswq) + ais_z + lis_z + vcis_z + imis_z, data = dat3_cog)
-prior_model <- lm(prior_strength ~ scale(pswq) + scale(rsq) + ais_z + lis_z + vcis_z + imis_z, data = dat3_cog)
-summary(prior_model)
+perf_model2 <- lm(dev_sc ~ ln_adj_visuospatial_index_sc + working_memory_index_sc + 
+                   executive_functioning_index_sc + attention_index_sc + pswq_sc + rsq_sc,
+                  data = dat3_cog)
+summary(perf_model2)
 
+prior_model2 <- lm(prior_strength_sc ~ ln_adj_visuospatial_index_sc + working_memory_index_sc + 
+                   executive_functioning_index_sc + attention_index_sc + pswq_sc + rsq_sc,
+                  data = dat3_cog)
+summary(prior_model2)
 
-#update_model <- lm(prior_likelihood_diff_mem ~ scale(rsq) + ais_z + lis_z + vcis_z + imis_z, data = dat3_cog)
-update_model <- lm(prior_likelihood_diff_mem ~ scale(pswq) + scale(rsq) + ais_z + lis_z + vcis_z + imis_z, data = dat3_cog)
-summary(update_model)
+update_model2 <- lm(prior_likelihood_diff_mem_sc ~ ln_adj_visuospatial_index_sc + working_memory_index_sc + 
+                   executive_functioning_index_sc + attention_index_sc + pswq_sc + rsq_sc, 
+                   data = dat3_cog)
+summary(update_model2)
 
-# MLM for prior strength (original model) - need to do the prior analysis with MLM, right?
-mod_prior_pswq <- dat %>%
-    filter(trialnum == 1, POS != 0) %>%
-    mutate_at(c("prior_strength", "pswq"), scale) %>%
-    lmer(prior_strength ~ pswq + (1 | subject), .)
-summary(mod_prior_pswq)
-add_p_values_to_lmer(mod_prior_pswq)
+# MLM for performance (deviation from optimal)
+# all cognitive measures
+mod_perf_cog <- dat %>%
+    mutate_at(c("dev"), scale) %>%
+    lmer(dev ~ ln_adj_visuospatial_index_sc + working_memory_index_sc + 
+           executive_functioning_index_sc + attention_index_sc + (1 | subject), .)
+summary(mod_perf_cog)
+add_p_values_to_lmer(mod_perf_cog)
+# individual measures
+mod_perf_cog1 <- dat %>%
+    mutate_at(c("dev"), scale) %>%
+    lmer(dev ~ ln_adj_visuospatial_index_sc + (1 | subject), .)
+mod_perf_cog2 <- dat %>%
+    mutate_at(c("dev"), scale) %>%
+    lmer(dev ~ working_memory_index_sc + (1 | subject), .)
+mod_perf_cog3 <- dat %>%
+    mutate_at(c("dev"), scale) %>%
+    lmer(dev ~ executive_functioning_index_sc + (1 | subject), .)
+mod_perf_cog4 <- dat %>%
+    mutate_at(c("dev"), scale) %>%
+    lmer(dev ~ attention_index_sc + (1 | subject), .)
+summary(mod_perf_cog1)
+add_p_values_to_lmer(mod_perf_cog1)
+summary(mod_perf_cog2)
+add_p_values_to_lmer(mod_perf_cog2)
+summary(mod_perf_cog3)
+add_p_values_to_lmer(mod_perf_cog3)
+summary(mod_perf_cog4)
+add_p_values_to_lmer(mod_perf_cog4)
 
-
-# MLM for cognition only
+# MLM for prior strength 
 mod_prior_cognition <- dat %>%
     filter(trialnum == 1, POS != 0) %>%
     mutate_at(c("prior_strength"), scale) %>%
-    lmer(prior_strength ~ scale(ais) + scale(lis) + scale(vcis) + scale(imis)  + (1 | subject), .)
+    lmer(prior_strength ~ ln_adj_visuospatial_index_sc + working_memory_index_sc + 
+           executive_functioning_index_sc + attention_index_sc + (1 | subject), .)
 summary(mod_prior_cognition)
 add_p_values_to_lmer(mod_prior_cognition)
 
-# Add cognition 
-#dat <- dat %>% mutate(mtotal_z = scale(mtotal),
-#         mtotalis_z = scale(mtotalis),
-#         ais_z = scale(ais),
-#         lis_z = scale(lis),
-#         vcis_z = scale(vcis),
-#         imis_z = scale(imis),
-#         dspan_z_z = scale(dspan_z))
-mod_prior_pswq_cog <- dat %>%
+mod_prior_cognition1 <- dat %>%
     filter(trialnum == 1, POS != 0) %>%
-    mutate_at(c("prior_strength", "pswq"), scale) %>%
-    lmer(prior_strength ~ pswq + scale(ais) + scale(lis) + scale(vcis) + scale(imis) + (1 | subject), .)
-    #lmer(prior_strength ~ pswq + ais_z + lis_z + vcis_z + imis_z + (1 | subject), .)
-summary(mod_prior_pswq_cog)
-add_p_values_to_lmer(mod_prior_pswq_cog)
-#attention only
-mod_prior_pswq_att <- dat %>%
+    mutate_at(c("prior_strength"), scale) %>%
+    lmer(prior_strength ~ ln_adj_visuospatial_index_sc + (1 | subject), .)
+mod_prior_cognition2 <- dat %>%
     filter(trialnum == 1, POS != 0) %>%
-    mutate_at(c("prior_strength", "pswq"), scale) %>%
-    lmer(prior_strength ~ pswq + scale(ais) + (1 | subject), .)
-    #lmer(prior_strength ~ pswq + ais_z + lis_z + vcis_z + imis_z + (1 | subject), .)
-summary(mod_prior_pswq_att)
-add_p_values_to_lmer(mod_prior_pswq_att)
+    mutate_at(c("prior_strength"), scale) %>%
+    lmer(prior_strength ~ working_memory_index_sc + (1 | subject), .)
+mod_prior_cognition3 <- dat %>%
+    filter(trialnum == 1, POS != 0) %>%
+    mutate_at(c("prior_strength"), scale) %>%
+    lmer(prior_strength ~ executive_functioning_index_sc + (1 | subject), .)
+mod_prior_cognition4 <- dat %>%
+    filter(trialnum == 1, POS != 0) %>%
+    mutate_at(c("prior_strength"), scale) %>%
+    lmer(prior_strength ~ attention_index_sc + (1 | subject), .)
+summary(mod_prior_cognition1)
+add_p_values_to_lmer(mod_prior_cognition1)
+summary(mod_prior_cognition2)
+add_p_values_to_lmer(mod_prior_cognition2)
+summary(mod_prior_cognition3)
+add_p_values_to_lmer(mod_prior_cognition3)
+summary(mod_prior_cognition4)
+add_p_values_to_lmer(mod_prior_cognition4)
+
+#Update strength regression model
+mod_updateStrengthMEM_cog <- dat3 %>%
+    filter(prior_likelihood_diff_mem > -0.75) %>%
+    mutate_at(c("prior_likelihood_diff_mem"), scale) %>%
+    lm(prior_likelihood_diff_mem ~ ln_adj_visuospatial_index_sc + working_memory_index_sc +
+         executive_functioning_index_sc + attention_index_sc, .)
+summary(mod_updateStrengthMEM_cog)
+
+mod_updateStrengthMEM_cog1 <- dat3 %>%
+    filter(prior_likelihood_diff_mem > -0.75) %>%
+    mutate_at(c("prior_likelihood_diff_mem"), scale) %>%
+    lm(prior_likelihood_diff_mem ~ ln_adj_visuospatial_index_sc, .)
+mod_updateStrengthMEM_cog1a <- dat3 %>%
+    filter(prior_likelihood_diff_mem > -0.75) %>%
+    mutate_at(c("prior_likelihood_diff_mem"), scale) %>%
+    lm(prior_likelihood_diff_mem ~ visuospatial_index_sc, .)
+mod_updateStrengthMEM_cog2 <- dat3 %>%
+    filter(prior_likelihood_diff_mem > -0.75) %>%
+    mutate_at(c("prior_likelihood_diff_mem"), scale) %>%
+    lm(prior_likelihood_diff_mem ~ working_memory_index_sc, .)
+mod_updateStrengthMEM_cog3 <- dat3 %>%
+    filter(prior_likelihood_diff_mem > -0.75) %>%
+    mutate_at(c("prior_likelihood_diff_mem"), scale) %>%
+    lm(prior_likelihood_diff_mem ~ executive_functioning_index_sc, .)
+mod_updateStrengthMEM_cog4 <- dat3 %>%
+    filter(prior_likelihood_diff_mem > -0.75) %>%
+    mutate_at(c("prior_likelihood_diff_mem"), scale) %>%
+    lm(prior_likelihood_diff_mem ~ attention_index_sc, .)
+summary(mod_updateStrengthMEM_cog1)
+summary(mod_updateStrengthMEM_cog1a)
+summary(mod_updateStrengthMEM_cog2)
+summary(mod_updateStrengthMEM_cog3)
+summary(mod_updateStrengthMEM_cog4)
+
 ```
+
+### Plots
+```{r cognition_plots_individual include=T, fig.width=15, fig.height=10}
+
+# Plots for performance
+lab = sprintf("b=%0.2f, p=%0.2f", add_p_values_to_lmer(mod_perf_cog1)[2,1], add_p_values_to_lmer(mod_perf_cog1)[2,4])
+g_dev_visuospatial <- dat3 %>%
+    #filter(prior_likelihood_diff_mem > -0.75) %>%
+    ggplot(aes(ln_adj_visuospatial_index_sc, dev_full_rms)) +
+    geom_point(size=2) +
+    stat_smooth(method="lm", size=2, color="blue", fill=rgb(0, 0, 1, 0.2)) +
+    annotate(geom="text", x=-0.5, y=0.05, label=lab, color="blue", size=18/.pt) +
+    xlab("Visuospatial Index (reflected, log transformed, z-score)") +
+    ylab("Deviation from Bayesian Optimal") +
+    theme(text=element_text(size=18),
+          strip.background=element_blank(),
+          panel.background=element_blank(),
+          axis.line=element_line(),
+          axis.ticks=element_blank())
+lab = sprintf("b=%0.2f, p=%0.2f", add_p_values_to_lmer(mod_perf_cog2)[2, 1], add_p_values_to_lmer(mod_perf_cog2)[2, 4])
+g_dev_working_memory <- dat3 %>%
+    #filter(prior_likelihood_diff_mem > -0.75) %>%
+    ggplot(aes(working_memory_index_sc, dev_full_rms)) +
+    geom_point(size=2) +
+    stat_smooth(method="lm", size=2, color="red", fill=rgb(1, 0, 0, 0.2)) +
+    annotate(geom="text", x=-0.5, y=0.05, label=lab, color="red", size=18/.pt) +
+    xlab("Working memory index (z-score)") +
+    ylab("Deviation from Bayesian Optimal") +
+    theme(text=element_text(size=18),
+          strip.background=element_blank(),
+          panel.background=element_blank(),
+          axis.line=element_line(),
+          axis.ticks=element_blank())
+lab = sprintf("b=%0.2f, p=%0.2f", add_p_values_to_lmer(mod_perf_cog3)[2, 1], add_p_values_to_lmer(mod_perf_cog3)[2, 4])
+g_dev_executive_function <- dat3 %>%
+    #filter(prior_likelihood_diff_mem > -0.75) %>%
+    ggplot(aes(executive_functioning_index_sc, dev_full_rms)) +
+    geom_point(size=2) +
+    stat_smooth(method="lm", size=2, color="blue", fill=rgb(0, 0, 1, 0.2)) +
+    annotate(geom="text", x=-0.5, y=0.05, label=lab, color="blue", size=18/.pt) +
+    xlab("Executive Function Index (z-score)") +
+    ylab("Deviation from Bayesian Optimal") +
+    theme(text=element_text(size=18),
+          strip.background=element_blank(),
+          panel.background=element_blank(),
+          axis.line=element_line(),
+          axis.ticks=element_blank())
+lab = sprintf("b=%0.2f, p=%0.2f", add_p_values_to_lmer(mod_perf_cog4)[2, 1], add_p_values_to_lmer(mod_perf_cog4)[2, 4])
+g_dev_attention <- dat3 %>%
+    #filter(prior_likelihood_diff_mem > -0.75) %>%
+    ggplot(aes(attention_index_sc, dev_full_rms)) +
+    geom_point(size=2) +
+    stat_smooth(method="lm", size=2, color="blue", fill=rgb(0, 0, 1, 0.2)) +
+    annotate(geom="text", x=-0.5, y=0.05, label=lab, color="blue", size=18/.pt) +
+    xlab("Attention Index (z-score)") +
+    ylab("Deviation from Bayesian Optimal") +
+    theme(text=element_text(size=18),
+          strip.background=element_blank(),
+          panel.background=element_blank(),
+          axis.line=element_line(),
+          axis.ticks=element_blank())
+grid.arrange(g_dev_visuospatial, g_dev_working_memory, g_dev_executive_function, g_dev_attention, nrow=2, ncol=2)
+
+
+
+# Plots for prior strength 
+lab = sprintf("b=%0.2f, p=%0.2f", add_p_values_to_lmer(mod_prior_cognition1)[2,1], add_p_values_to_lmer(mod_prior_cognition1)[2,4])
+g_prior_visuospatial <- dat3 %>%
+    #filter(trialnum == 1, POS != 0) %>%
+    ggplot(aes(ln_adj_visuospatial_index_sc, prior_mean1)) +
+    geom_point(size=2) +
+    stat_smooth(method="lm", size=2, color="blue", fill=rgb(0, 0, 1, 0.2)) +
+    annotate(geom="text", x=-0.5, y=0.05, label=lab, color="blue", size=18/.pt) +
+    xlab("Visuospatial Index (reflected, log transformed, z-score)") +
+    ylab("Prior Strength") +
+    theme(text=element_text(size=18),
+          strip.background=element_blank(),
+          panel.background=element_blank(),
+          axis.line=element_line(),
+          axis.ticks=element_blank())
+lab = sprintf("b=%0.2f, p=%0.2f", add_p_values_to_lmer(mod_prior_cognition2)[2, 1], 
+              add_p_values_to_lmer(mod_prior_cognition2)[2, 4])
+g_prior_working_memory <- dat3 %>%
+  #filter(trialnum == 1, POS != 0) %>%    
+  ggplot(aes(working_memory_index_sc, prior_mean1)) +
+    geom_point(size=2) +
+    stat_smooth(method="lm", size=2, color="blue", fill=rgb(0, 0, 1, 0.2)) +
+    annotate(geom="text", x=-0.5, y=0.05, label=lab, color="blue", size=18/.pt) +
+    xlab("Working memory index (z-score)") +
+    ylab("Prior Strength") +
+    theme(text=element_text(size=18),
+          strip.background=element_blank(),
+          panel.background=element_blank(),
+          axis.line=element_line(),
+          axis.ticks=element_blank())
+lab = sprintf("b=%0.2f, p=%0.2f", add_p_values_to_lmer(mod_prior_cognition3)[2, 1], 
+              add_p_values_to_lmer(mod_prior_cognition3)[2, 4])
+g_prior_executive_function <- dat3 %>%
+    #filter(trialnum == 1, POS != 0) %>%    
+  ggplot(aes(executive_functioning_index_sc, prior_mean1)) +
+    geom_point(size=2) +
+    stat_smooth(method="lm", size=2, color="blue", fill=rgb(0, 0, 1, 0.2)) +
+    annotate(geom="text", x=-0.5, y=0.05, label=lab, color="blue", size=18/.pt) +
+    xlab("Executive Function Index (z-score)") +
+    ylab("Prior Strength") +
+    theme(text=element_text(size=18),
+          strip.background=element_blank(),
+          panel.background=element_blank(),
+          axis.line=element_line(),
+          axis.ticks=element_blank())
+lab = sprintf("b=%0.2f, p=%0.2f", add_p_values_to_lmer(mod_prior_cognition4)[2, 1], 
+              add_p_values_to_lmer(mod_prior_cognition4)[2, 4])
+g_prior_attention <- dat3 %>%
+    #filter(trialnum == 1, POS != 0) %>%    
+  ggplot(aes(attention_index_sc, prior_mean1)) +
+    geom_point(size=2) +
+    stat_smooth(method="lm", size=2, color="blue", fill=rgb(0, 0, 1, 0.2)) +
+    annotate(geom="text", x=-0.5, y=0.05, label=lab, color="blue", size=18/.pt) +
+    xlab("Attention Index (z-score)") +
+    ylab("Prior Strength") +
+    theme(text=element_text(size=18),
+          strip.background=element_blank(),
+          panel.background=element_blank(),
+          axis.line=element_line(),
+          axis.ticks=element_blank())
+grid.arrange(g_prior_visuospatial, g_prior_working_memory, g_prior_executive_function, g_prior_attention, nrow=2, ncol=2)
+
+
+
+# Plots for update strength 
+lab = sprintf("b=%0.2f, p=%0.2f", coef(summary(mod_updateStrengthMEM_cog1))[2, 1], coef(summary(mod_updateStrengthMEM_cog1))[2, 4])
+g_prior_likelihood_diff_mem_cog1 <- dat3 %>%
+    filter(prior_likelihood_diff_mem > -0.75) %>%
+    ggplot(aes(ln_adj_visuospatial_index_sc, prior_likelihood_diff_mem)) +
+    geom_point(size=2) +
+    stat_smooth(method="lm", size=2, color="red", fill=rgb(1, 0, 0, 0.2)) +
+    annotate(geom="text", x=-0.5, y=-0.4, label=lab, color="red", size=18/.pt) +
+    xlab("Visuospatial Index (reflected, log transformed, z-score)") +
+    ylab("Update Strength") +
+    theme(text=element_text(size=18),
+          strip.background=element_blank(),
+          panel.background=element_blank(),
+          axis.line=element_line(),
+          axis.ticks=element_blank())
+lab = sprintf("b=%0.2f, p=%0.2f", coef(summary(mod_updateStrengthMEM_cog1a))[2, 1], coef(summary(mod_updateStrengthMEM_cog1a))[2, 4])
+g_prior_likelihood_diff_mem_cog1a <- dat3 %>%
+    filter(prior_likelihood_diff_mem > -0.75) %>%
+    ggplot(aes(visuospatial_index_sc, prior_likelihood_diff_mem)) +
+    geom_point(size=2) +
+    stat_smooth(method="lm", size=2, color="red", fill=rgb(1, 0, 0, 0.2)) +
+    annotate(geom="text", x=-3, y=-0.4, label=lab, color="red", size=18/.pt) +
+    xlab("Visuospatial Index (z-score)") +
+    ylab("Update Strength") +
+    theme(text=element_text(size=18),
+          strip.background=element_blank(),
+          panel.background=element_blank(),
+          axis.line=element_line(),
+          axis.ticks=element_blank())
+lab = sprintf("b=%0.2f, p=%0.2f", coef(summary(mod_updateStrengthMEM_cog2))[2, 1], coef(summary(mod_updateStrengthMEM_cog2))[2, 4])
+g_prior_likelihood_diff_mem_cog2 <- dat3 %>%
+    filter(prior_likelihood_diff_mem > -0.75) %>%
+    ggplot(aes(working_memory_index_sc, prior_likelihood_diff_mem)) +
+    geom_point(size=2) +
+    stat_smooth(method="lm", size=2, color="blue", fill=rgb(0, 0, 1, 0.2)) +
+    annotate(geom="text", x=-0.5, y=-0.4, label=lab, color="blue", size=18/.pt) +
+    xlab("Working Memory Index (z-score)") +
+    ylab("Update Strength") +
+    theme(text=element_text(size=18),
+          strip.background=element_blank(),
+          panel.background=element_blank(),
+          axis.line=element_line(),
+          axis.ticks=element_blank())
+lab = sprintf("b=%0.2f, p=%0.2f", coef(summary(mod_updateStrengthMEM_cog3))[2, 1], coef(summary(mod_updateStrengthMEM_cog3))[2, 4])
+g_prior_likelihood_diff_mem_cog3 <- dat3 %>%
+    filter(prior_likelihood_diff_mem > -0.75) %>%
+    ggplot(aes(executive_functioning_index_sc, prior_likelihood_diff_mem)) +
+    geom_point(size=2) +
+    stat_smooth(method="lm", size=2, color="blue", fill=rgb(0, 0, 1, 0.2)) +
+    annotate(geom="text", x=-0.5, y=-0.4, label=lab, color="blue", size=18/.pt) +
+    xlab("Executive Function Index (z-score)") +
+    ylab("Update Strength") +
+    theme(text=element_text(size=18),
+          strip.background=element_blank(),
+          panel.background=element_blank(),
+          axis.line=element_line(),
+          axis.ticks=element_blank())
+lab = sprintf("b=%0.2f, p=%0.2f", coef(summary(mod_updateStrengthMEM_cog4))[2, 1], coef(summary(mod_updateStrengthMEM_cog4))[2, 4])
+g_prior_likelihood_diff_mem_cog4 <- dat3 %>%
+    filter(prior_likelihood_diff_mem > -0.75) %>%
+    ggplot(aes(attention_index_sc, prior_likelihood_diff_mem)) +
+    geom_point(size=2) +
+    stat_smooth(method="lm", size=2, color="blue", fill=rgb(0, 0, 1, 0.2)) +
+    annotate(geom="text", x=-0.5, y=-0.4, label=lab, color="blue", size=18/.pt) +
+    xlab("Attention Index (z-score)") +
+    ylab("Update Strength") +
+    theme(text=element_text(size=18),
+          strip.background=element_blank(),
+          panel.background=element_blank(),
+          axis.line=element_line(),
+          axis.ticks=element_blank())
+grid.arrange(g_prior_likelihood_diff_mem_cog1a, g_prior_likelihood_diff_mem_cog2, g_prior_likelihood_diff_mem_cog3, g_prior_likelihood_diff_mem_cog4, nrow=2, ncol=2)
+
+``` 
+
