@@ -1657,7 +1657,7 @@ g_prior_likelihood_diff_mem_cog4 <- dat3 %>%
 grid.arrange(g_prior_likelihood_diff_mem_cog1a, g_prior_likelihood_diff_mem_cog2, g_prior_likelihood_diff_mem_cog3, g_prior_likelihood_diff_mem_cog4, nrow=2, ncol=2)
 
 ``` 
-## Cogntion-Clinical Assocations
+## Cognition-Clinical Assocations
 ```{r cognition_clinical_interactions, include=T}
 # MLM for performance (deviation from optimal)
 # individual measures
@@ -1838,5 +1838,112 @@ summary(mod_perf_signed_cog3w)
 summary(mod_perf_signed_cog3r)
 summary(mod_perf_signed_cog4w)
 summary(mod_perf_signed_cog4r)
+
+```
+
+## Associations with Individual Cognitive Measures
+```{r cognition_clinical_interactions, include=T}
+
+# Vector of predictor variables
+vars = c("vcis_sc", "line_sc", "mfigcopy_sc", "listtotal_sc", "storytotal_sc", 
+         "dspan_sc", "imis_sc", "diffss_sc", "cwi3cssfinal_sc", 
+         "cwi4cssfinal_sc", "coding_sc")
+
+# Functions to create formula for each variable
+dev_formula_fn <- function(varname) {
+  as.formula(paste("dev ~ ", varname, " + scale(age) + scale(edu) + (1 | subject)"))
+}
+dev_pswq_formula_fn <- function(varname) {
+  as.formula(paste("dev ~ ", varname, "*scale(pswq) + scale(age) + scale(edu) + (1 | subject)"))
+}
+dev_rsq_formula_fn <- function(varname) {
+  as.formula(paste("dev ~ ", varname, "*scale(rsq) + scale(age) + scale(edu) + (1 | subject)"))
+}
+
+prior_formula_fn <- function(varname) {
+  as.formula(paste("prior_strength ~ ", varname, " + scale(age) + scale(edu) + (1 | subject)"))
+}
+prior_pswq_formula_fn <- function(varname) {
+  as.formula(paste("prior_strength ~ ", varname, "*scale(pswq) + scale(age) + scale(edu) + (1 | subject)"))
+}
+prior_rsq_formula_fn <- function(varname) {
+  as.formula(paste("prior_strength ~ ", varname, "*scale(rsq) + scale(age) + scale(edu) + (1 | subject)"))
+}
+
+update_formula_fn <- function(varname) {
+  as.formula(paste("prior_likelihood_diff_mem ~ ", varname, " + scale(age) + scale(edu)"))
+}
+update_pswq_formula_fn <- function(varname) {
+  as.formula(paste("prior_likelihood_diff_mem ~ ", varname, "*scale(pswq) + scale(age) + scale(edu)"))
+}
+update_rsq_formula_fn <- function(varname) {
+  as.formula(paste("prior_likelihood_diff_mem ~ ", varname, "*scale(rsq) + scale(age) + scale(edu)"))
+}
+
+
+formula_fns <- list(dev_formula_fn, dev_pswq_formula_fn, dev_rsq_formula_fn,
+                    prior_formula_fn, prior_pswq_formula_fn, prior_rsq_formula_fn,
+                    update_formula_fn, update_pswq_formula_fn, update_rsq_formula_fn)
+
+#results <- list()
+
+for (v in vars) {
+  disp(v)
+  results[[v]] <- list()
+  
+  # MLM for performance (deviation from optimal)
+  disp("MLM, deviation from optimal")
+  model1 <- lmer(dev_formula_fn(v), data = dat)
+  summary(model1)
+  disp("MLM deviation from optimal - worry interaction")
+  model2 <- lmer(dev_pswq_formula_fn(v), data = dat)
+  summary(model2)
+  disp("MLM deviation from optimal - rumination interaction")
+  model3 <- lmer(dev_rsq_formula_fn(v), data = dat)
+  summary(model3)
+  
+  # MLM for prior strength 
+  disp("MLM, prior strength")
+  model4 <- lmer(prior_formula_fn(v), data = dat)
+  summary(model4)
+  disp("MLM deviation from optimal - worry interaction")
+  model5 <- lmer(prior_pswq_formula_fn(v), data = dat)
+  summary(model5)
+  disp("MLM deviation from optimal - rumination interaction")
+  model6 <- lmer(prior_rsq_formula_fn(v), data = dat)
+  summary(model6)
+
+  # Update strength regression model
+  disp("linear model, update strength")
+  model7 <- lm(update_formula_fn(v), data = dat3)
+  summary(model7)
+  disp("MLM deviation from optimal - worry interaction")
+  model8 <- lm(update_pswq_formula_fn(v), data = dat3)
+  summary(model8)
+  disp("MLM deviation from optimal - rumination interaction")
+  model9 <- lm(update_rsq_formula_fn(v), data = dat3)
+  summary(model9)
+  
+  #results[[v]][1] <- model1
+  #results[[v]][2] <- model2
+  #results[[v]][3] <- model3
+  #results[[v]][4] <- model4
+  #results[[v]][5] <- model5
+  #results[[v]][6] <- model6
+  #results[[v]][7] <- model7
+  #results[[v]][8] <- model8
+  #results[[v]][9] <- model9
+  print(summary(model1))
+  print(summary(model2))
+  print(summary(model3))
+  print(summary(model4))
+  print(summary(model5))
+  print(summary(model6))
+  print(summary(model7))
+  print(summary(model8))
+  print(summary(model9))
+}
+
+
 
 ```
