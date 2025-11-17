@@ -1214,7 +1214,7 @@ select_clin_dat <- select_clin_dat %>% mutate (
   storytotal_sc = as.vector(scale(storytotal_z)),
   dspan_sc = as.vector(scale(dspan_z)),
   imis_sc = as.vector(scale(imis)),
-  working_memory_index = rowMeans(cbind(listtotal_sc, storytotal_sc, dspan_sc, imis_sc), na.rm=TRUE),
+  working_memory_index = rowMeans(cbind(listtotal_sc, storytotal_sc, dspan_sc), na.rm=TRUE), #take out imis_sc
   working_memory_index_sc = as.vector(scale(working_memory_index)),
   #executive functioning
   diffss_sc = as.vector(scale(diffss)),
@@ -1250,8 +1250,8 @@ if (!("visuospatial_index" %in% colnames(dat))) {
 #dat_cog <- dat %>% select(edu.x,prior_strength)
 #dat_age_prior <- dat %>% select(subject,age,edu,prior_strength) #don't think we can use prior strength here
 dat_age_prior <- dat %>% select(subject,age,edu) %>% unique() #don't think we can use prior strength here
-dat3_wage <- left_join(dat_age_prior,dat3,by="subject") 
-dat3_cog <- dat3_wage %>%
+#dat3_wage <- left_join(dat_age_prior,dat3,by="subject") 
+dat3_cog <- dat3 %>%
   mutate(edu_sc = scale(edu),
          age_sc = scale(age),
          pswq_sc = scale(pswq),
@@ -1295,35 +1295,35 @@ corrplot(pearson_correlation_results$r, type="upper", col=rev(brewer.pal(n=8, na
 ## Cognition Regression - individual cognitive measures
 ```{r cognition_regression, include=T}
 #Multiple regressions
-perf_model <- lm(dev_sc ~ ln_adj_visuospatial_index_sc + working_memory_index_sc + 
-                   executive_functioning_index_sc + attention_index_sc, data = dat3_cog)
+perf_model <- lm(dev_full_abs ~ ln_adj_visuospatial_index_sc + working_memory_index_sc + 
+                   executive_functioning_index_sc + attention_index_sc, data = dat3)
 summary(perf_model)
 car::vif(perf_model) 
 
-prior_model <- lm(prior_strength_sc ~ ln_adj_visuospatial_index_sc + working_memory_index_sc + 
-                   executive_functioning_index_sc + attention_index_sc, data = dat3_cog)
+prior_model <- lm(prior_mean1 ~ ln_adj_visuospatial_index_sc + working_memory_index_sc + 
+                   executive_functioning_index_sc + attention_index_sc, data = dat3)
 car::vif(prior_model)
 summary(prior_model)
 
-update_model <- lm(prior_likelihood_diff_mem_sc ~ ln_adj_visuospatial_index_sc + working_memory_index_sc + 
-                   executive_functioning_index_sc + attention_index_sc, data = dat3_cog)
+update_model <- lm(prior_likelihood_diff_mem ~ ln_adj_visuospatial_index_sc + working_memory_index_sc + 
+                   executive_functioning_index_sc + attention_index_sc, data = dat3)
 car::vif(update_model)
 summary(update_model)
 
 # Add in rumination and worry
-perf_model2 <- lm(dev_sc ~ ln_adj_visuospatial_index_sc + working_memory_index_sc + 
-                   executive_functioning_index_sc + attention_index_sc + pswq_sc + rsq_sc,
-                  data = dat3_cog)
+perf_model2 <- lm(dev_full_rms ~ ln_adj_visuospatial_index_sc + working_memory_index_sc + 
+                   executive_functioning_index_sc + attention_index_sc + scale(pswq) + scale(rsq),
+                  data = dat3)
 summary(perf_model2)
 
-prior_model2 <- lm(prior_strength_sc ~ ln_adj_visuospatial_index_sc + working_memory_index_sc + 
-                   executive_functioning_index_sc + attention_index_sc + pswq_sc + rsq_sc,
-                  data = dat3_cog)
+prior_model2 <- lm(prior_mean1 ~ ln_adj_visuospatial_index_sc + working_memory_index_sc + 
+                   executive_functioning_index_sc + attention_index_sc + scale(pswq) + scale(rsq),
+                  data = dat3)
 summary(prior_model2)
 
-update_model2 <- lm(prior_likelihood_diff_mem_sc ~ ln_adj_visuospatial_index_sc + working_memory_index_sc + 
-                   executive_functioning_index_sc + attention_index_sc + pswq_sc + rsq_sc, 
-                   data = dat3_cog)
+update_model2 <- lm(prior_likelihood_diff_mem ~ ln_adj_visuospatial_index_sc + working_memory_index_sc + 
+                   executive_functioning_index_sc + attention_index_sc + scale(pswq) + scale(rsq), 
+                   data = dat3)
 summary(update_model2)
 
 # MLM for performance (deviation from optimal)
@@ -1353,13 +1353,9 @@ mod_perf_cog4 <- dat %>%
     mutate_at(c("dev","age","edu"), scale) %>%
     lmer(dev ~ attention_index_sc + age + edu +  (1 | subject), .)
 summary(mod_perf_cog1)
-#add_p_values_to_lmer(mod_perf_cog1)
 summary(mod_perf_cog2)
-#add_p_values_to_lmer(mod_perf_cog2)
 summary(mod_perf_cog3)
-#add_p_values_to_lmer(mod_perf_cog3)
 summary(mod_perf_cog4)
-#add_p_values_to_lmer(mod_perf_cog4)
 
 # MLM for prior strength 
 mod_prior_cognition <- dat %>%
@@ -1368,7 +1364,6 @@ mod_prior_cognition <- dat %>%
     lmer(prior_strength ~ ln_adj_visuospatial_index_sc + working_memory_index_sc + 
            executive_functioning_index_sc + attention_index_sc + age + edu + (1 | subject), .)
 summary(mod_prior_cognition)
-#add_p_values_to_lmer(mod_prior_cognition)
 
 mod_prior_cognition1 <- dat %>%
     filter(trialnum == 1, POS != 0) %>%
@@ -1387,39 +1382,35 @@ mod_prior_cognition4 <- dat %>%
     mutate_at(c("prior_strength","age","edu"), scale) %>%
     lmer(prior_strength ~ attention_index_sc + age + edu +  (1 | subject), .)
 summary(mod_prior_cognition1)
-#add_p_values_to_lmer(mod_prior_cognition1)
 summary(mod_prior_cognition2)
-#add_p_values_to_lmer(mod_prior_cognition2)
 summary(mod_prior_cognition3)
-#add_p_values_to_lmer(mod_prior_cognition3)
 summary(mod_prior_cognition4)
-#add_p_values_to_lmer(mod_prior_cognition4)
 
 #Update strength regression model
-mod_updateStrengthMEM_cog <- dat3_wage %>%
+mod_updateStrengthMEM_cog <- dat3 %>%
     filter(prior_likelihood_diff_mem > -0.75) %>%
     mutate_at(c("prior_likelihood_diff_mem","age","edu"), scale) %>%
     lm(prior_likelihood_diff_mem ~ ln_adj_visuospatial_index_sc + working_memory_index_sc +
          executive_functioning_index_sc + attention_index_sc + age + edu, .)
 summary(mod_updateStrengthMEM_cog)
 
-mod_updateStrengthMEM_cog1 <- dat3_wage %>%
+mod_updateStrengthMEM_cog1 <- dat3 %>%
     filter(prior_likelihood_diff_mem > -0.75) %>%
     mutate_at(c("prior_likelihood_diff_mem","age","edu"), scale) %>%
     lm(prior_likelihood_diff_mem ~ ln_adj_visuospatial_index_sc + age + edu, .)
-mod_updateStrengthMEM_cog1a <- dat3_wage %>%
+mod_updateStrengthMEM_cog1a <- dat3 %>%
     filter(prior_likelihood_diff_mem > -0.75) %>%
     mutate_at(c("prior_likelihood_diff_mem","age","edu"), scale) %>%
     lm(prior_likelihood_diff_mem ~ visuospatial_index_sc + age + edu, .)
-mod_updateStrengthMEM_cog2 <- dat3_wage %>%
+mod_updateStrengthMEM_cog2 <- dat3 %>%
     filter(prior_likelihood_diff_mem > -0.75) %>%
     mutate_at(c("prior_likelihood_diff_mem","age","edu"), scale) %>%
     lm(prior_likelihood_diff_mem ~ working_memory_index_sc + age + edu, .)
-mod_updateStrengthMEM_cog3 <- dat3_wage %>%
+mod_updateStrengthMEM_cog3 <- dat3 %>%
     filter(prior_likelihood_diff_mem > -0.75) %>%
     mutate_at(c("prior_likelihood_diff_mem","age","edu"), scale) %>%
     lm(prior_likelihood_diff_mem ~ executive_functioning_index_sc + age + edu, .)
-mod_updateStrengthMEM_cog4 <- dat3_wage %>%
+mod_updateStrengthMEM_cog4 <- dat3 %>%
     filter(prior_likelihood_diff_mem > -0.75) %>%
     mutate_at(c("prior_likelihood_diff_mem","age","edu"), scale) %>%
     lm(prior_likelihood_diff_mem ~ attention_index_sc + age + edu, .)
@@ -1428,6 +1419,39 @@ summary(mod_updateStrengthMEM_cog1a)
 summary(mod_updateStrengthMEM_cog2)
 summary(mod_updateStrengthMEM_cog3)
 summary(mod_updateStrengthMEM_cog4)
+
+# MLM for signed deviation from optimal (alt. update measure) 
+# all cognitive measures
+mod_perf_cog <- dat %>%
+    filter(blocknum %in% blocks, trialnum > 1) %>%
+    mutate_at(c("dev_signed","age","edu"), scale) %>%
+    lmer(dev_signed ~ ln_adj_visuospatial_index_sc + working_memory_index_sc + 
+           executive_functioning_index_sc + attention_index_sc + age + edu +  (1 | subject), .)
+summary(mod_perf_cog)
+#add_p_values_to_lmer(mod_perf_cog)
+# individual measures
+mod_perf_cog1 <- dat %>%
+  filter(blocknum %in% blocks, trialnum > 1) %>%
+    mutate_at(c("dev_signed","age","edu"), scale) %>%
+    lmer(dev_signed ~ ln_adj_visuospatial_index_sc + age + edu + (1 | subject), .)
+mod_perf_cog2 <- dat %>%
+  filter(blocknum %in% blocks, trialnum > 1) %>%
+    mutate_at(c("dev_signed","age","edu"), scale) %>%
+    lmer(dev_signed ~ working_memory_index_sc + age + edu +  (1 | subject), .)
+mod_perf_cog3 <- dat %>%
+  filter(blocknum %in% blocks, trialnum > 1) %>%
+    mutate_at(c("dev_signed","age","edu"), scale) %>%
+    lmer(dev_signed ~ executive_functioning_index_sc + age + edu +  (1 | subject), .)
+mod_perf_cog4 <- dat %>%
+  filter(blocknum %in% blocks, trialnum > 1) %>%
+    mutate_at(c("dev_signed","age","edu"), scale) %>%
+    lmer(dev_signed ~ attention_index_sc + age + edu +  (1 | subject), .)
+summary(mod_perf_cog1)
+summary(mod_perf_cog2)
+summary(mod_perf_cog3)
+summary(mod_perf_cog4)
+
+
 
 ```
 
@@ -1633,4 +1657,186 @@ g_prior_likelihood_diff_mem_cog4 <- dat3 %>%
 grid.arrange(g_prior_likelihood_diff_mem_cog1a, g_prior_likelihood_diff_mem_cog2, g_prior_likelihood_diff_mem_cog3, g_prior_likelihood_diff_mem_cog4, nrow=2, ncol=2)
 
 ``` 
+## Cogntion-Clinical Assocations
+```{r cognition_clinical_interactions, include=T}
+# MLM for performance (deviation from optimal)
+# individual measures
+mod_perf_cog1w <- dat %>%
+  filter(blocknum %in% blocks, trialnum > 1) %>%
+    mutate_at(c("dev","age","edu","pswq","rsq"), scale) %>%
+    lmer(dev ~ ln_adj_visuospatial_index_sc*pswq + age + edu + (1 | subject), .)
+mod_perf_cog1r <- dat %>%
+  filter(blocknum %in% blocks, trialnum > 1) %>%
+    mutate_at(c("dev","age","edu","pswq","rsq"), scale) %>%
+    lmer(dev ~ ln_adj_visuospatial_index_sc*rsq + age + edu + (1 | subject), .)
+mod_perf_cog2w <- dat %>%
+  filter(blocknum %in% blocks, trialnum > 1) %>%
+    mutate_at(c("dev","age","edu","pswq","rsq"), scale) %>%
+    lmer(dev ~ working_memory_index_sc*pswq + age + edu +  (1 | subject), .)
+mod_perf_cog2r <- dat %>%
+  filter(blocknum %in% blocks, trialnum > 1) %>%
+    mutate_at(c("dev","age","edu","pswq","rsq"), scale) %>%
+    lmer(dev ~ working_memory_index_sc*rsq + age + edu +  (1 | subject), .)
+mod_perf_cog3w <- dat %>%
+  filter(blocknum %in% blocks, trialnum > 1) %>%
+    mutate_at(c("dev","age","edu","pswq","rsq"), scale) %>%
+    lmer(dev ~ executive_functioning_index_sc*pswq + age + edu +  (1 | subject), .)
+mod_perf_cog3r <- dat %>%
+  filter(blocknum %in% blocks, trialnum > 1) %>%
+    mutate_at(c("dev","age","edu","pswq","rsq"), scale) %>%
+    lmer(dev ~ executive_functioning_index_sc*rsq + age + edu +  (1 | subject), .)
+mod_perf_cog4w <- dat %>%
+  filter(blocknum %in% blocks, trialnum > 1) %>%
+    mutate_at(c("dev","age","edu","pswq","rsq"), scale) %>%
+    lmer(dev ~ attention_index_sc*pswq + age + edu +  (1 | subject), .)
+mod_perf_cog4r <- dat %>%
+  filter(blocknum %in% blocks, trialnum > 1) %>%
+    mutate_at(c("dev","age","edu","pswq","rsq"), scale) %>%
+    lmer(dev ~ attention_index_sc*rsq + age + edu +  (1 | subject), .)
+summary(mod_perf_cog1w)
+summary(mod_perf_cog1r)
+summary(mod_perf_cog2w)
+summary(mod_perf_cog2r)
+summary(mod_perf_cog3w)
+summary(mod_perf_cog3r)
+summary(mod_perf_cog4w)
+summary(mod_perf_cog4r)
 
+# MLM for prior strength 
+mod_prior_cognition1w <- dat %>%
+    filter(trialnum == 1, POS != 0) %>%
+    mutate_at(c("prior_strength","age","edu","pswq","rsq"), scale) %>%
+    lmer(prior_strength ~ ln_adj_visuospatial_index_sc*pswq + age + edu + (1 | subject), .)
+mod_prior_cognition1r <- dat %>%
+    filter(trialnum == 1, POS != 0) %>%
+    mutate_at(c("prior_strength","age","edu","pswq","rsq"), scale) %>%
+    lmer(prior_strength ~ ln_adj_visuospatial_index_sc*rsq + age + edu + (1 | subject), .)
+mod_prior_cognition2w <- dat %>%
+    filter(trialnum == 1, POS != 0) %>%
+    mutate_at(c("prior_strength","age","edu","pswq","rsq"), scale) %>%
+    lmer(prior_strength ~ working_memory_index_sc*pswq + age + edu + (1 | subject), .)
+mod_prior_cognition2r <- dat %>%
+    filter(trialnum == 1, POS != 0) %>%
+    mutate_at(c("prior_strength","age","edu","pswq","rsq"), scale) %>%
+    lmer(prior_strength ~ working_memory_index_sc*rsq + age + edu + (1 | subject), .)
+mod_prior_cognition3w <- dat %>%
+    filter(trialnum == 1, POS != 0) %>%
+    mutate_at(c("prior_strength","age","edu","pswq","rsq"), scale) %>%
+    lmer(prior_strength ~ executive_functioning_index_sc*pswq + age + edu + (1 | subject), .)
+mod_prior_cognition3r <- dat %>%
+    filter(trialnum == 1, POS != 0) %>%
+    mutate_at(c("prior_strength","age","edu","pswq","rsq"), scale) %>%
+    lmer(prior_strength ~ executive_functioning_index_sc*rsq + age + edu + (1 | subject), .)
+mod_prior_cognition4w <- dat %>%
+    filter(trialnum == 1, POS != 0) %>%
+    mutate_at(c("prior_strength","age","edu","pswq","rsq"), scale) %>%
+    lmer(prior_strength ~ attention_index_sc*pswq + age + edu + (1 | subject), .)
+mod_prior_cognition4r <- dat %>%
+    filter(trialnum == 1, POS != 0) %>%
+    mutate_at(c("prior_strength","age","edu","pswq","rsq"), scale) %>%
+    lmer(prior_strength ~ attention_index_sc*rsq + age + edu + (1 | subject), .)
+summary(mod_prior_cognition1w)
+summary(mod_prior_cognition1r)
+summary(mod_prior_cognition2w)
+summary(mod_prior_cognition2r)
+summary(mod_prior_cognition3w)
+summary(mod_prior_cognition3r)
+summary(mod_prior_cognition4w)
+summary(mod_prior_cognition4r)
+
+#Update strength regression model
+mod_updateStrengthMEM_cog1w <- dat3 %>%
+    filter(prior_likelihood_diff_mem > -0.75) %>%
+    mutate_at(c("prior_likelihood_diff_mem","age","edu","pswq","rsq"), scale) %>%
+    lm(prior_likelihood_diff_mem ~ ln_adj_visuospatial_index_sc*pswq + age + edu, .)
+mod_updateStrengthMEM_cog1r <- dat3 %>%
+    filter(prior_likelihood_diff_mem > -0.75) %>%
+    mutate_at(c("prior_likelihood_diff_mem","age","edu","pswq","rsq"), scale) %>%
+    lm(prior_likelihood_diff_mem ~ ln_adj_visuospatial_index_sc*rsq + age + edu, .)
+mod_updateStrengthMEM_cog1aw <- dat3 %>%
+    filter(prior_likelihood_diff_mem > -0.75) %>%
+    mutate_at(c("prior_likelihood_diff_mem","age","edu","pswq","rsq"), scale) %>%
+    lm(prior_likelihood_diff_mem ~ visuospatial_index_sc*pswq + age + edu, .)
+mod_updateStrengthMEM_cog1ar <- dat3 %>%
+    filter(prior_likelihood_diff_mem > -0.75) %>%
+    mutate_at(c("prior_likelihood_diff_mem","age","edu","pswq","rsq"), scale) %>%
+    lm(prior_likelihood_diff_mem ~ visuospatial_index_sc*rsq + age + edu, .)
+mod_updateStrengthMEM_cog2w <- dat3 %>%
+    filter(prior_likelihood_diff_mem > -0.75) %>%
+    mutate_at(c("prior_likelihood_diff_mem","age","edu","pswq","rsq"), scale) %>%
+    lm(prior_likelihood_diff_mem ~ working_memory_index_sc*pswq + age + edu, .)
+mod_updateStrengthMEM_cog2r <- dat3 %>%
+    filter(prior_likelihood_diff_mem > -0.75) %>%
+    mutate_at(c("prior_likelihood_diff_mem","age","edu","pswq","rsq"), scale) %>%
+    lm(prior_likelihood_diff_mem ~ working_memory_index_sc*rsq + age + edu, .)
+mod_updateStrengthMEM_cog3w <- dat3 %>%
+    filter(prior_likelihood_diff_mem > -0.75) %>%
+    mutate_at(c("prior_likelihood_diff_mem","age","edu","pswq","rsq"), scale) %>%
+    lm(prior_likelihood_diff_mem ~ executive_functioning_index_sc*pswq + age + edu, .)
+mod_updateStrengthMEM_cog3r <- dat3 %>%
+    filter(prior_likelihood_diff_mem > -0.75) %>%
+    mutate_at(c("prior_likelihood_diff_mem","age","edu","pswq","rsq"), scale) %>%
+    lm(prior_likelihood_diff_mem ~ executive_functioning_index_sc*rsq + age + edu, .)
+mod_updateStrengthMEM_cog4w <- dat3 %>%
+    filter(prior_likelihood_diff_mem > -0.75) %>%
+    mutate_at(c("prior_likelihood_diff_mem","age","edu","pswq","rsq"), scale) %>%
+    lm(prior_likelihood_diff_mem ~ attention_index_sc*pswq + age + edu, .)
+mod_updateStrengthMEM_cog4r <- dat3 %>%
+    filter(prior_likelihood_diff_mem > -0.75) %>%
+    mutate_at(c("prior_likelihood_diff_mem","age","edu","pswq","rsq"), scale) %>%
+    lm(prior_likelihood_diff_mem ~ attention_index_sc*rsq + age + edu, .)
+summary(mod_updateStrengthMEM_cog1w)
+summary(mod_updateStrengthMEM_cog1r)
+summary(mod_updateStrengthMEM_cog1aw)
+summary(mod_updateStrengthMEM_cog1ar)
+summary(mod_updateStrengthMEM_cog2w)
+summary(mod_updateStrengthMEM_cog2r)
+summary(mod_updateStrengthMEM_cog3w)
+summary(mod_updateStrengthMEM_cog3r)
+summary(mod_updateStrengthMEM_cog4w)
+summary(mod_updateStrengthMEM_cog4r)
+
+# MLM for signed deviation from optimal (alt. update measure) 
+# individual measures
+mod_perf_signed_cog1w <- dat %>%
+  filter(blocknum %in% blocks, trialnum > 1) %>%
+    mutate_at(c("dev_signed","age","edu","pswq","rsq"), scale) %>%
+    lmer(dev_signed ~ ln_adj_visuospatial_index_sc*pswq + age + edu + (1 | subject), .)
+mod_perf_signed_cog1r <- dat %>%
+  filter(blocknum %in% blocks, trialnum > 1) %>%
+    mutate_at(c("dev_signed","age","edu","pswq","rsq"), scale) %>%
+    lmer(dev_signed ~ ln_adj_visuospatial_index_sc*rsq + age + edu + (1 | subject), .)
+mod_perf_signed_cog2w <- dat %>%
+  filter(blocknum %in% blocks, trialnum > 1) %>%
+    mutate_at(c("dev_signed","age","edu","pswq","rsq"), scale) %>%
+    lmer(dev_signed ~ working_memory_index_sc*pswq + age + edu + (1 | subject), .)
+mod_perf_signed_cog2r <- dat %>%
+  filter(blocknum %in% blocks, trialnum > 1) %>%
+    mutate_at(c("dev_signed","age","edu","pswq","rsq"), scale) %>%
+    lmer(dev_signed ~ working_memory_index_sc*rsq + age + edu + (1 | subject), .)
+mod_perf_signed_cog3w <- dat %>%
+  filter(blocknum %in% blocks, trialnum > 1) %>%
+    mutate_at(c("dev_signed","age","edu","pswq","rsq"), scale) %>%
+    lmer(dev_signed ~ executive_functioning_index_sc*pswq + age + edu +(1 | subject), .)
+mod_perf_signed_cog3r <- dat %>%
+  filter(blocknum %in% blocks, trialnum > 1) %>%
+    mutate_at(c("dev_signed","age","edu","pswq","rsq"), scale) %>%
+    lmer(dev_signed ~ executive_functioning_index_sc*rsq + age + edu +(1 | subject), .)
+mod_perf_signed_cog4w <- dat %>%
+  filter(blocknum %in% blocks, trialnum > 1) %>%
+    mutate_at(c("dev_signed","age","edu","pswq","rsq"), scale) %>%
+    lmer(dev_signed ~ attention_index_sc*pswq + age + edu + (1 | subject), .)
+mod_perf_signed_cog4r <- dat %>%
+  filter(blocknum %in% blocks, trialnum > 1) %>%
+    mutate_at(c("dev_signed","age","edu","pswq","rsq"), scale) %>%
+    lmer(dev_signed ~ attention_index_sc*rsq + age + edu + (1 | subject), .)
+summary(mod_perf_signed_cog1w)
+summary(mod_perf_signed_cog1r)
+summary(mod_perf_signed_cog2w)
+summary(mod_perf_signed_cog2r)
+summary(mod_perf_signed_cog3w)
+summary(mod_perf_signed_cog3r)
+summary(mod_perf_signed_cog4w)
+summary(mod_perf_signed_cog4r)
+
+```
