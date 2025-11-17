@@ -691,6 +691,8 @@ for(i in ids) {
         print_msg(paste("WARNING: clinical data missing for", i))
         next
     }
+  
+    # trail level data
     dat$age[dat$subject == i] <- clin_dat$status_consent_date[clin_dat$raw_id == i] - clin_dat$dob[clin_dat$raw_id == i]
     dat$edu[dat$subject == i] <- clin_dat$edu[clin_dat$raw_id == i]
     dat$race[dat$subject == i] <- clin_dat$race[clin_dat$raw_id == i]
@@ -698,6 +700,12 @@ for(i in ids) {
     dat$pswq[dat$subject == i] <- clin_dat$pswq_total[clin_dat$raw_id == i]
     dat$rsq[dat$subject == i] <- clin_dat$rsq_total[clin_dat$raw_id == i]
     dat$hars[dat$subject == i] <- clin_dat$hars_score[clin_dat$raw_id == i]
+    
+    # block level data
+    dat2$age[dat2$subject == i] <- clin_dat$status_consent_date[clin_dat$raw_id == i] - clin_dat$dob[clin_dat$raw_id == i]
+    dat2$edu[dat2$subject == i] <- clin_dat$edu[clin_dat$raw_id == i]
+    dat2$race[dat2$subject == i] <- clin_dat$race[clin_dat$raw_id == i]
+    dat2$sex[dat2$subject == i] <- clin_dat$gender[clin_dat$raw_id == i]
     dat2$pswq[dat2$subject == i] <- clin_dat$pswq_total[clin_dat$raw_id == i]
     dat2$rsq[dat2$subject == i] <- clin_dat$rsq_total[clin_dat$raw_id == i]
     dat2$hars[dat2$subject == i] <- clin_dat$hars_score[clin_dat$raw_id == i]
