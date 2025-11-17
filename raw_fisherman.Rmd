@@ -450,7 +450,8 @@ for(i in ids) {
 # Code direction-independent prior strength
 dat$prior_strength <- abs(dat$prior - 0.5) * 10
 # Add trial level deviation
-dat$dev = abs(dat$prob_A - dat$bayes_A_full)
+dat$dev_signed = dat$prob_A - dat$bayes_A_full
+dat$dev = abs(dat$dev_signed)
 
 # Plot subject data
 plot_subject <- function(id) {
