@@ -17,12 +17,16 @@ library(stringr)
 library(gridExtra)
 library(philentropy)
 library(lme4)
+library(lmerTest)
 library(ggpubr)
 library(sjPlot)
 library(grid)
 library(corrplot)
 library(RColorBrewer)
 library(Hmisc)
+library(emmeans)
+library(ggeffects)
+library(interactions)
 
 ################################################################################
 # print message or blank line if empty                                         #
@@ -1147,7 +1151,7 @@ g_rsq_hars = dat3 %>%
 ```
 
 # AI - Cognition
-dat is the original data file; not exactly sure what is done for dat3 (block 19 only?)
+dat is the original data file; dat3 block 19 only
 dat2$prior_likelihood_diff_lm = dat2$prior_weight_lm - dat2$likelihood_weight_lm
 mod <- lmer(log(prob_A) ~ (1 + log(trial_prior) + log(like_A) | subject), dat)
 dat3 <- dat2 %>% filter(block == 19) %>% select(-block)
@@ -1251,7 +1255,7 @@ if (!("visuospatial_index" %in% colnames(dat))) {
 #dat_age_prior <- dat %>% select(subject,age,edu,prior_strength) #don't think we can use prior strength here
 dat_age_prior <- dat %>% select(subject,age,edu) %>% unique() #don't think we can use prior strength here
 #dat3_wage <- left_join(dat_age_prior,dat3,by="subject") 
-dat3_cog <- dat3 %>%
+dat3_cog_all <- dat3 %>%
   mutate(edu_sc = scale(edu),
          age_sc = scale(age),
          pswq_sc = scale(pswq),
@@ -1267,14 +1271,15 @@ dat3_cog <- dat3 %>%
          coding_sc, attention_index, attention_index_sc)
 
 #if want to filter down:
-dat3_cog <- dat3_cog %>%
+dat3_cog <- dat3_cog_all %>%
   select(age_sc, edu_sc, pswq_sc, rsq_sc, dev_sc, 
          prior_strength_sc, prior_likelihood_diff_mem_sc, ln_adj_visuospatial_index_sc,
          working_memory_index_sc, executive_functioning_index_sc, attention_index_sc)
 
 # https://www.sthda.com/english/wiki/correlation-analyses-in-r
-M1 <- cor(dat3_cog,use="complete.obs")
-corrplot(M1, type="upper", col=colorRampPalette(c("blue", "white", "red"))(200))
+#M1 <- cor(dat3_cog,use="complete.obs")
+#corrplot(M1, type="upper", col=colorRampPalette(c("blue", "white", "red"))(200))
+
 
 # To get correlation matrix with p-values
 dat3_matrix <- as.matrix(dat3_cog)
@@ -1287,43 +1292,81 @@ spearman_p_values <- spearman_correlation_results$P
 pearson_sig_results <- pearson_correlation_results
 pearson_sig_results$r[pearson_correlation_results$P>0.05]=NA #really liberal significance thresholding for visualization
 
-corrplot(pearson_correlation_results$r, type="upper", col=rev(brewer.pal(n=8, name="RdYlBu"))) 
+
+mycolors <- c("#e7331a","#f16a16","#ffc82f","#FFEE8C","white","#ADE8F4", "#48cae4","#0096c7","#023e8a")
+
+#corrplot(pearson_correlation_results$r, type="upper", col=rev(brewer.pal(n=8, name="RdYlBu"))) 
+corrplot(pearson_correlation_results$r, type="upper", col=rev(mycolors)) 
+
+
+
+
+# Cor plot with all individual measures
+# To get correlation matrix with p-values
+dat3_cog_all_select <- dat3_cog_all %>% select(age_sc, edu_sc, pswq_sc, rsq_sc, dev_sc, 
+                                               prior_strength_sc, prior_likelihood_diff_mem_sc,
+                                               vcis_sc, line_sc, mfigcopy_sc, ln_adj_visuospatial_index_sc,
+                                               listtotal_sc, storytotal_sc, dspan_sc, imis_sc, working_memory_index_sc,
+                                               diffss_sc, cwi3cssfinal_sc, cwi4cssfinal_sc,
+                                               executive_functioning_index_sc, coding_sc, attention_index_sc)
+dat3_all_matrix <- as.matrix(dat3_cog_all_select)
+dat3_all_pearson_correlation_results <- rcorr(dat3_all_matrix, type="pearson") #or spearman
+dat3_all_pearson_p_values <- dat3_all_pearson_correlation_results$P
+dat3_all_spearman_correlation_results <- rcorr(dat3_all_matrix, type="spearman") #or spearman
+dat3_all_spearman_p_values <- dat3_all_spearman_correlation_results$P
+
+#only keep significant results
+dat3_all_pearson_sig_results <- dat3_all_pearson_correlation_results
+dat3_all_pearson_sig_results$r[dat3_all_pearson_correlation_results$P>0.05]=0 #really liberal significance thresholding for visualization
+
+#pdf("dat3_all_plot.pdf", width = 10, height = 10)
+corrplot(dat3_all_pearson_correlation_results$r, type="upper", col=rev(mycolors), main = "All results") 
+#dev.off()
+
+#pdf("dat3_all_plot_SIGonly.pdf", width = 10, height = 10)
+corrplot(dat3_all_pearson_sig_results$r, type="upper", col=rev(mycolors), main = "P<0.05")
+#dev.off()
 
 ```
 
 
-## Cognition Regression - individual cognitive measures
+## Cognition Regression 
 ```{r cognition_regression, include=T}
+
 #Multiple regressions
 perf_model <- lm(dev_full_abs ~ ln_adj_visuospatial_index_sc + working_memory_index_sc + 
-                   executive_functioning_index_sc + attention_index_sc, data = dat3)
+                  executive_functioning_index_sc + attention_index_sc + scale(age) + scale(edu) +
+                  sex, data = dat3)
 summary(perf_model)
 car::vif(perf_model) 
 
 prior_model <- lm(prior_mean1 ~ ln_adj_visuospatial_index_sc + working_memory_index_sc + 
-                   executive_functioning_index_sc + attention_index_sc, data = dat3)
+                   executive_functioning_index_sc + attention_index_sc + scale(age) + scale(edu) +
+                    sex, data = dat3)
 car::vif(prior_model)
 summary(prior_model)
 
 update_model <- lm(prior_likelihood_diff_mem ~ ln_adj_visuospatial_index_sc + working_memory_index_sc + 
-                   executive_functioning_index_sc + attention_index_sc, data = dat3)
+                   executive_functioning_index_sc + attention_index_sc + scale(age) + scale(edu) +
+                    sex, data = dat3)
 car::vif(update_model)
 summary(update_model)
 
 # Add in rumination and worry
 perf_model2 <- lm(dev_full_rms ~ ln_adj_visuospatial_index_sc + working_memory_index_sc + 
-                   executive_functioning_index_sc + attention_index_sc + scale(pswq) + scale(rsq),
-                  data = dat3)
+                   executive_functioning_index_sc + attention_index_sc + scale(pswq) + scale(rsq) +
+                   scale(age) + scale(edu) + sex,
+                   data = dat3)
 summary(perf_model2)
 
 prior_model2 <- lm(prior_mean1 ~ ln_adj_visuospatial_index_sc + working_memory_index_sc + 
-                   executive_functioning_index_sc + attention_index_sc + scale(pswq) + scale(rsq),
-                  data = dat3)
+                   executive_functioning_index_sc + attention_index_sc + scale(pswq) + scale(rsq) +
+                   scale(age) + scale(edu) + sex, data = dat3)
 summary(prior_model2)
 
 update_model2 <- lm(prior_likelihood_diff_mem ~ ln_adj_visuospatial_index_sc + working_memory_index_sc + 
-                   executive_functioning_index_sc + attention_index_sc + scale(pswq) + scale(rsq), 
-                   data = dat3)
+                   executive_functioning_index_sc + attention_index_sc + scale(pswq) + scale(rsq) +
+                   scale(age) + scale(edu) + sex, data = dat3)
 summary(update_model2)
 
 # MLM for performance (deviation from optimal)
@@ -1332,26 +1375,26 @@ mod_perf_cog <- dat %>%
     filter(blocknum %in% blocks, trialnum > 1) %>%
     mutate_at(c("dev","age","edu"), scale) %>%
     lmer(dev ~ ln_adj_visuospatial_index_sc + working_memory_index_sc + 
-           executive_functioning_index_sc + attention_index_sc + age + edu +  (1 | subject), .)
+           executive_functioning_index_sc + attention_index_sc + age + edu + sex + (1 | subject), .)
 summary(mod_perf_cog)
 #add_p_values_to_lmer(mod_perf_cog)
 # individual measures
 mod_perf_cog1 <- dat %>%
   filter(blocknum %in% blocks, trialnum > 1) %>%
     mutate_at(c("dev","age","edu"), scale) %>%
-    lmer(dev ~ ln_adj_visuospatial_index_sc + age + edu + (1 | subject), .)
+    lmer(dev ~ ln_adj_visuospatial_index_sc + age + edu + sex + (1 | subject), .)
 mod_perf_cog2 <- dat %>%
   filter(blocknum %in% blocks, trialnum > 1) %>%
     mutate_at(c("dev","age","edu"), scale) %>%
-    lmer(dev ~ working_memory_index_sc + age + edu +  (1 | subject), .)
+    lmer(dev ~ working_memory_index_sc + age + edu + sex + (1 | subject), .)
 mod_perf_cog3 <- dat %>%
   filter(blocknum %in% blocks, trialnum > 1) %>%
     mutate_at(c("dev","age","edu"), scale) %>%
-    lmer(dev ~ executive_functioning_index_sc + age + edu +  (1 | subject), .)
+    lmer(dev ~ executive_functioning_index_sc + age + edu + sex + (1 | subject), .)
 mod_perf_cog4 <- dat %>%
   filter(blocknum %in% blocks, trialnum > 1) %>%
     mutate_at(c("dev","age","edu"), scale) %>%
-    lmer(dev ~ attention_index_sc + age + edu +  (1 | subject), .)
+    lmer(dev ~ attention_index_sc + age + edu + sex + (1 | subject), .)
 summary(mod_perf_cog1)
 summary(mod_perf_cog2)
 summary(mod_perf_cog3)
@@ -1362,25 +1405,25 @@ mod_prior_cognition <- dat %>%
     filter(trialnum == 1, POS != 0) %>%
     mutate_at(c("prior_strength","age","edu"), scale) %>%
     lmer(prior_strength ~ ln_adj_visuospatial_index_sc + working_memory_index_sc + 
-           executive_functioning_index_sc + attention_index_sc + age + edu + (1 | subject), .)
+           executive_functioning_index_sc + attention_index_sc + age + edu + sex + (1 | subject), .)
 summary(mod_prior_cognition)
 
 mod_prior_cognition1 <- dat %>%
     filter(trialnum == 1, POS != 0) %>%
     mutate_at(c("prior_strength","age","edu"), scale) %>%
-    lmer(prior_strength ~ ln_adj_visuospatial_index_sc + age + edu +  (1 | subject), .)
+    lmer(prior_strength ~ ln_adj_visuospatial_index_sc + age + edu + sex + (1 | subject), .)
 mod_prior_cognition2 <- dat %>%
     filter(trialnum == 1, POS != 0) %>%
     mutate_at(c("prior_strength","age","edu"), scale) %>%
-    lmer(prior_strength ~ working_memory_index_sc + age + edu +  (1 | subject), .)
+    lmer(prior_strength ~ working_memory_index_sc + age + edu + sex + (1 | subject), .)
 mod_prior_cognition3 <- dat %>%
     filter(trialnum == 1, POS != 0) %>%
     mutate_at(c("prior_strength","age","edu"), scale) %>%
-    lmer(prior_strength ~ executive_functioning_index_sc + age + edu +  (1 | subject), .)
+    lmer(prior_strength ~ executive_functioning_index_sc + age + edu + sex + (1 | subject), .)
 mod_prior_cognition4 <- dat %>%
     filter(trialnum == 1, POS != 0) %>%
     mutate_at(c("prior_strength","age","edu"), scale) %>%
-    lmer(prior_strength ~ attention_index_sc + age + edu +  (1 | subject), .)
+    lmer(prior_strength ~ attention_index_sc + age + edu + sex + (1 | subject), .)
 summary(mod_prior_cognition1)
 summary(mod_prior_cognition2)
 summary(mod_prior_cognition3)
@@ -1391,61 +1434,61 @@ mod_updateStrengthMEM_cog <- dat3 %>%
     filter(prior_likelihood_diff_mem > -0.75) %>%
     mutate_at(c("prior_likelihood_diff_mem","age","edu"), scale) %>%
     lm(prior_likelihood_diff_mem ~ ln_adj_visuospatial_index_sc + working_memory_index_sc +
-         executive_functioning_index_sc + attention_index_sc + age + edu, .)
+         executive_functioning_index_sc + attention_index_sc + age + edu + sex, .)
 summary(mod_updateStrengthMEM_cog)
 
 mod_updateStrengthMEM_cog1 <- dat3 %>%
     filter(prior_likelihood_diff_mem > -0.75) %>%
     mutate_at(c("prior_likelihood_diff_mem","age","edu"), scale) %>%
-    lm(prior_likelihood_diff_mem ~ ln_adj_visuospatial_index_sc + age + edu, .)
+    lm(prior_likelihood_diff_mem ~ ln_adj_visuospatial_index_sc + age + edu + sex, .)
 mod_updateStrengthMEM_cog1a <- dat3 %>%
     filter(prior_likelihood_diff_mem > -0.75) %>%
     mutate_at(c("prior_likelihood_diff_mem","age","edu"), scale) %>%
-    lm(prior_likelihood_diff_mem ~ visuospatial_index_sc + age + edu, .)
+    lm(prior_likelihood_diff_mem ~ visuospatial_index_sc + age + edu + sex, .)
 mod_updateStrengthMEM_cog2 <- dat3 %>%
     filter(prior_likelihood_diff_mem > -0.75) %>%
     mutate_at(c("prior_likelihood_diff_mem","age","edu"), scale) %>%
-    lm(prior_likelihood_diff_mem ~ working_memory_index_sc + age + edu, .)
+    lm(prior_likelihood_diff_mem ~ working_memory_index_sc + age + edu + sex, .)
 mod_updateStrengthMEM_cog3 <- dat3 %>%
     filter(prior_likelihood_diff_mem > -0.75) %>%
     mutate_at(c("prior_likelihood_diff_mem","age","edu"), scale) %>%
-    lm(prior_likelihood_diff_mem ~ executive_functioning_index_sc + age + edu, .)
+    lm(prior_likelihood_diff_mem ~ executive_functioning_index_sc + age + edu + sex, .)
 mod_updateStrengthMEM_cog4 <- dat3 %>%
     filter(prior_likelihood_diff_mem > -0.75) %>%
     mutate_at(c("prior_likelihood_diff_mem","age","edu"), scale) %>%
-    lm(prior_likelihood_diff_mem ~ attention_index_sc + age + edu, .)
+    lm(prior_likelihood_diff_mem ~ attention_index_sc + age + edu + sex, .)
 summary(mod_updateStrengthMEM_cog1)
 summary(mod_updateStrengthMEM_cog1a)
 summary(mod_updateStrengthMEM_cog2)
 summary(mod_updateStrengthMEM_cog3)
 summary(mod_updateStrengthMEM_cog4)
 
-# MLM for signed deviation from optimal (alt. update measure) 
+# MLM for signed deviation from optimal (alt. perf measure) 
 # all cognitive measures
 mod_perf_cog <- dat %>%
     filter(blocknum %in% blocks, trialnum > 1) %>%
     mutate_at(c("dev_signed","age","edu"), scale) %>%
     lmer(dev_signed ~ ln_adj_visuospatial_index_sc + working_memory_index_sc + 
-           executive_functioning_index_sc + attention_index_sc + age + edu +  (1 | subject), .)
+           executive_functioning_index_sc + attention_index_sc + age + edu + sex +  (1 | subject), .)
 summary(mod_perf_cog)
 #add_p_values_to_lmer(mod_perf_cog)
 # individual measures
 mod_perf_cog1 <- dat %>%
   filter(blocknum %in% blocks, trialnum > 1) %>%
     mutate_at(c("dev_signed","age","edu"), scale) %>%
-    lmer(dev_signed ~ ln_adj_visuospatial_index_sc + age + edu + (1 | subject), .)
+    lmer(dev_signed ~ ln_adj_visuospatial_index_sc + age + edu + sex + (1 | subject), .)
 mod_perf_cog2 <- dat %>%
   filter(blocknum %in% blocks, trialnum > 1) %>%
     mutate_at(c("dev_signed","age","edu"), scale) %>%
-    lmer(dev_signed ~ working_memory_index_sc + age + edu +  (1 | subject), .)
+    lmer(dev_signed ~ working_memory_index_sc + age + edu + sex + (1 | subject), .)
 mod_perf_cog3 <- dat %>%
   filter(blocknum %in% blocks, trialnum > 1) %>%
     mutate_at(c("dev_signed","age","edu"), scale) %>%
-    lmer(dev_signed ~ executive_functioning_index_sc + age + edu +  (1 | subject), .)
+    lmer(dev_signed ~ executive_functioning_index_sc + age + edu + sex +  (1 | subject), .)
 mod_perf_cog4 <- dat %>%
   filter(blocknum %in% blocks, trialnum > 1) %>%
     mutate_at(c("dev_signed","age","edu"), scale) %>%
-    lmer(dev_signed ~ attention_index_sc + age + edu +  (1 | subject), .)
+    lmer(dev_signed ~ attention_index_sc + age + edu + sex + (1 | subject), .)
 summary(mod_perf_cog1)
 summary(mod_perf_cog2)
 summary(mod_perf_cog3)
@@ -1657,42 +1700,55 @@ g_prior_likelihood_diff_mem_cog4 <- dat3 %>%
 grid.arrange(g_prior_likelihood_diff_mem_cog1a, g_prior_likelihood_diff_mem_cog2, g_prior_likelihood_diff_mem_cog3, g_prior_likelihood_diff_mem_cog4, nrow=2, ncol=2)
 
 ``` 
-## Cognition-Clinical Assocations
+## Cognition-Clinical Interactions
 ```{r cognition_clinical_interactions, include=T}
+
+#Clinical-cognition regression
+pswq_model <- lm(pswq ~ ln_adj_visuospatial_index_sc + working_memory_index_sc + 
+                   executive_functioning_index_sc + attention_index_sc + scale(age) +
+                   scale(edu) + sex, data = dat3)
+summary(pswq_model)
+
+rsq_model <- lm(rsq ~ ln_adj_visuospatial_index_sc + working_memory_index_sc + 
+                   executive_functioning_index_sc + attention_index_sc + scale(age) +
+                  scale(edu) + sex, data = dat3)
+summary(rsq_model)
+
+
 # MLM for performance (deviation from optimal)
 # individual measures
 mod_perf_cog1w <- dat %>%
   filter(blocknum %in% blocks, trialnum > 1) %>%
     mutate_at(c("dev","age","edu","pswq","rsq"), scale) %>%
-    lmer(dev ~ ln_adj_visuospatial_index_sc*pswq + age + edu + (1 | subject), .)
+    lmer(dev ~ ln_adj_visuospatial_index_sc*pswq + age + edu + sex + (1 | subject), .)
 mod_perf_cog1r <- dat %>%
   filter(blocknum %in% blocks, trialnum > 1) %>%
     mutate_at(c("dev","age","edu","pswq","rsq"), scale) %>%
-    lmer(dev ~ ln_adj_visuospatial_index_sc*rsq + age + edu + (1 | subject), .)
+    lmer(dev ~ ln_adj_visuospatial_index_sc*rsq + age + edu + sex + (1 | subject), .)
 mod_perf_cog2w <- dat %>%
   filter(blocknum %in% blocks, trialnum > 1) %>%
     mutate_at(c("dev","age","edu","pswq","rsq"), scale) %>%
-    lmer(dev ~ working_memory_index_sc*pswq + age + edu +  (1 | subject), .)
+    lmer(dev ~ working_memory_index_sc*pswq + age + edu + sex + (1 | subject), .)
 mod_perf_cog2r <- dat %>%
   filter(blocknum %in% blocks, trialnum > 1) %>%
     mutate_at(c("dev","age","edu","pswq","rsq"), scale) %>%
-    lmer(dev ~ working_memory_index_sc*rsq + age + edu +  (1 | subject), .)
+    lmer(dev ~ working_memory_index_sc*rsq + age + edu + sex + (1 | subject), .)
 mod_perf_cog3w <- dat %>%
   filter(blocknum %in% blocks, trialnum > 1) %>%
     mutate_at(c("dev","age","edu","pswq","rsq"), scale) %>%
-    lmer(dev ~ executive_functioning_index_sc*pswq + age + edu +  (1 | subject), .)
+    lmer(dev ~ executive_functioning_index_sc*pswq + age + edu + sex + (1 | subject), .)
 mod_perf_cog3r <- dat %>%
   filter(blocknum %in% blocks, trialnum > 1) %>%
     mutate_at(c("dev","age","edu","pswq","rsq"), scale) %>%
-    lmer(dev ~ executive_functioning_index_sc*rsq + age + edu +  (1 | subject), .)
+    lmer(dev ~ executive_functioning_index_sc*rsq + age + edu + sex +  (1 | subject), .)
 mod_perf_cog4w <- dat %>%
   filter(blocknum %in% blocks, trialnum > 1) %>%
     mutate_at(c("dev","age","edu","pswq","rsq"), scale) %>%
-    lmer(dev ~ attention_index_sc*pswq + age + edu +  (1 | subject), .)
+    lmer(dev ~ attention_index_sc*pswq + age + edu + sex +  (1 | subject), .)
 mod_perf_cog4r <- dat %>%
   filter(blocknum %in% blocks, trialnum > 1) %>%
     mutate_at(c("dev","age","edu","pswq","rsq"), scale) %>%
-    lmer(dev ~ attention_index_sc*rsq + age + edu +  (1 | subject), .)
+    lmer(dev ~ attention_index_sc*rsq + age + edu + sex +  (1 | subject), .)
 summary(mod_perf_cog1w)
 summary(mod_perf_cog1r)
 summary(mod_perf_cog2w)
@@ -1706,35 +1762,35 @@ summary(mod_perf_cog4r)
 mod_prior_cognition1w <- dat %>%
     filter(trialnum == 1, POS != 0) %>%
     mutate_at(c("prior_strength","age","edu","pswq","rsq"), scale) %>%
-    lmer(prior_strength ~ ln_adj_visuospatial_index_sc*pswq + age + edu + (1 | subject), .)
+    lmer(prior_strength ~ ln_adj_visuospatial_index_sc*pswq + age + edu + sex + (1 | subject), .)
 mod_prior_cognition1r <- dat %>%
     filter(trialnum == 1, POS != 0) %>%
     mutate_at(c("prior_strength","age","edu","pswq","rsq"), scale) %>%
-    lmer(prior_strength ~ ln_adj_visuospatial_index_sc*rsq + age + edu + (1 | subject), .)
+    lmer(prior_strength ~ ln_adj_visuospatial_index_sc*rsq + age + edu + sex +  (1 | subject), .)
 mod_prior_cognition2w <- dat %>%
     filter(trialnum == 1, POS != 0) %>%
     mutate_at(c("prior_strength","age","edu","pswq","rsq"), scale) %>%
-    lmer(prior_strength ~ working_memory_index_sc*pswq + age + edu + (1 | subject), .)
+    lmer(prior_strength ~ working_memory_index_sc*pswq + age + edu + sex + (1 | subject), .)
 mod_prior_cognition2r <- dat %>%
     filter(trialnum == 1, POS != 0) %>%
     mutate_at(c("prior_strength","age","edu","pswq","rsq"), scale) %>%
-    lmer(prior_strength ~ working_memory_index_sc*rsq + age + edu + (1 | subject), .)
+    lmer(prior_strength ~ working_memory_index_sc*rsq + age + edu + sex + (1 | subject), .)
 mod_prior_cognition3w <- dat %>%
     filter(trialnum == 1, POS != 0) %>%
     mutate_at(c("prior_strength","age","edu","pswq","rsq"), scale) %>%
-    lmer(prior_strength ~ executive_functioning_index_sc*pswq + age + edu + (1 | subject), .)
+    lmer(prior_strength ~ executive_functioning_index_sc*pswq + age + edu + sex + (1 | subject), .)
 mod_prior_cognition3r <- dat %>%
     filter(trialnum == 1, POS != 0) %>%
     mutate_at(c("prior_strength","age","edu","pswq","rsq"), scale) %>%
-    lmer(prior_strength ~ executive_functioning_index_sc*rsq + age + edu + (1 | subject), .)
+    lmer(prior_strength ~ executive_functioning_index_sc*rsq + age + edu + sex + (1 | subject), .)
 mod_prior_cognition4w <- dat %>%
     filter(trialnum == 1, POS != 0) %>%
     mutate_at(c("prior_strength","age","edu","pswq","rsq"), scale) %>%
-    lmer(prior_strength ~ attention_index_sc*pswq + age + edu + (1 | subject), .)
+    lmer(prior_strength ~ attention_index_sc*pswq + age + edu + sex + (1 | subject), .)
 mod_prior_cognition4r <- dat %>%
     filter(trialnum == 1, POS != 0) %>%
     mutate_at(c("prior_strength","age","edu","pswq","rsq"), scale) %>%
-    lmer(prior_strength ~ attention_index_sc*rsq + age + edu + (1 | subject), .)
+    lmer(prior_strength ~ attention_index_sc*rsq + age + edu + sex + (1 | subject), .)
 summary(mod_prior_cognition1w)
 summary(mod_prior_cognition1r)
 summary(mod_prior_cognition2w)
@@ -1748,43 +1804,43 @@ summary(mod_prior_cognition4r)
 mod_updateStrengthMEM_cog1w <- dat3 %>%
     filter(prior_likelihood_diff_mem > -0.75) %>%
     mutate_at(c("prior_likelihood_diff_mem","age","edu","pswq","rsq"), scale) %>%
-    lm(prior_likelihood_diff_mem ~ ln_adj_visuospatial_index_sc*pswq + age + edu, .)
+    lm(prior_likelihood_diff_mem ~ ln_adj_visuospatial_index_sc*pswq + age + edu + sex, .)
 mod_updateStrengthMEM_cog1r <- dat3 %>%
     filter(prior_likelihood_diff_mem > -0.75) %>%
     mutate_at(c("prior_likelihood_diff_mem","age","edu","pswq","rsq"), scale) %>%
-    lm(prior_likelihood_diff_mem ~ ln_adj_visuospatial_index_sc*rsq + age + edu, .)
+    lm(prior_likelihood_diff_mem ~ ln_adj_visuospatial_index_sc*rsq + age + edu + sex, .)
 mod_updateStrengthMEM_cog1aw <- dat3 %>%
     filter(prior_likelihood_diff_mem > -0.75) %>%
     mutate_at(c("prior_likelihood_diff_mem","age","edu","pswq","rsq"), scale) %>%
-    lm(prior_likelihood_diff_mem ~ visuospatial_index_sc*pswq + age + edu, .)
+    lm(prior_likelihood_diff_mem ~ visuospatial_index_sc*pswq + age + edu + sex, .)
 mod_updateStrengthMEM_cog1ar <- dat3 %>%
     filter(prior_likelihood_diff_mem > -0.75) %>%
     mutate_at(c("prior_likelihood_diff_mem","age","edu","pswq","rsq"), scale) %>%
-    lm(prior_likelihood_diff_mem ~ visuospatial_index_sc*rsq + age + edu, .)
+    lm(prior_likelihood_diff_mem ~ visuospatial_index_sc*rsq + age + edu + sex, .)
 mod_updateStrengthMEM_cog2w <- dat3 %>%
     filter(prior_likelihood_diff_mem > -0.75) %>%
     mutate_at(c("prior_likelihood_diff_mem","age","edu","pswq","rsq"), scale) %>%
-    lm(prior_likelihood_diff_mem ~ working_memory_index_sc*pswq + age + edu, .)
+    lm(prior_likelihood_diff_mem ~ working_memory_index_sc*pswq + age + edu + sex, .)
 mod_updateStrengthMEM_cog2r <- dat3 %>%
     filter(prior_likelihood_diff_mem > -0.75) %>%
     mutate_at(c("prior_likelihood_diff_mem","age","edu","pswq","rsq"), scale) %>%
-    lm(prior_likelihood_diff_mem ~ working_memory_index_sc*rsq + age + edu, .)
+    lm(prior_likelihood_diff_mem ~ working_memory_index_sc*rsq + age + edu + sex, .)
 mod_updateStrengthMEM_cog3w <- dat3 %>%
     filter(prior_likelihood_diff_mem > -0.75) %>%
     mutate_at(c("prior_likelihood_diff_mem","age","edu","pswq","rsq"), scale) %>%
-    lm(prior_likelihood_diff_mem ~ executive_functioning_index_sc*pswq + age + edu, .)
+    lm(prior_likelihood_diff_mem ~ executive_functioning_index_sc*pswq + age + edu + sex, .)
 mod_updateStrengthMEM_cog3r <- dat3 %>%
     filter(prior_likelihood_diff_mem > -0.75) %>%
     mutate_at(c("prior_likelihood_diff_mem","age","edu","pswq","rsq"), scale) %>%
-    lm(prior_likelihood_diff_mem ~ executive_functioning_index_sc*rsq + age + edu, .)
+    lm(prior_likelihood_diff_mem ~ executive_functioning_index_sc*rsq + age + edu + sex, .)
 mod_updateStrengthMEM_cog4w <- dat3 %>%
     filter(prior_likelihood_diff_mem > -0.75) %>%
     mutate_at(c("prior_likelihood_diff_mem","age","edu","pswq","rsq"), scale) %>%
-    lm(prior_likelihood_diff_mem ~ attention_index_sc*pswq + age + edu, .)
+    lm(prior_likelihood_diff_mem ~ attention_index_sc*pswq + age + edu + sex, .)
 mod_updateStrengthMEM_cog4r <- dat3 %>%
     filter(prior_likelihood_diff_mem > -0.75) %>%
     mutate_at(c("prior_likelihood_diff_mem","age","edu","pswq","rsq"), scale) %>%
-    lm(prior_likelihood_diff_mem ~ attention_index_sc*rsq + age + edu, .)
+    lm(prior_likelihood_diff_mem ~ attention_index_sc*rsq + age + edu + sex, .)
 summary(mod_updateStrengthMEM_cog1w)
 summary(mod_updateStrengthMEM_cog1r)
 summary(mod_updateStrengthMEM_cog1aw)
@@ -1801,35 +1857,35 @@ summary(mod_updateStrengthMEM_cog4r)
 mod_perf_signed_cog1w <- dat %>%
   filter(blocknum %in% blocks, trialnum > 1) %>%
     mutate_at(c("dev_signed","age","edu","pswq","rsq"), scale) %>%
-    lmer(dev_signed ~ ln_adj_visuospatial_index_sc*pswq + age + edu + (1 | subject), .)
+    lmer(dev_signed ~ ln_adj_visuospatial_index_sc*pswq + age + edu + sex + (1 | subject), .)
 mod_perf_signed_cog1r <- dat %>%
   filter(blocknum %in% blocks, trialnum > 1) %>%
     mutate_at(c("dev_signed","age","edu","pswq","rsq"), scale) %>%
-    lmer(dev_signed ~ ln_adj_visuospatial_index_sc*rsq + age + edu + (1 | subject), .)
+    lmer(dev_signed ~ ln_adj_visuospatial_index_sc*rsq + age + edu + sex + (1 | subject), .)
 mod_perf_signed_cog2w <- dat %>%
   filter(blocknum %in% blocks, trialnum > 1) %>%
     mutate_at(c("dev_signed","age","edu","pswq","rsq"), scale) %>%
-    lmer(dev_signed ~ working_memory_index_sc*pswq + age + edu + (1 | subject), .)
+    lmer(dev_signed ~ working_memory_index_sc*pswq + age + edu + sex + (1 | subject), .)
 mod_perf_signed_cog2r <- dat %>%
   filter(blocknum %in% blocks, trialnum > 1) %>%
     mutate_at(c("dev_signed","age","edu","pswq","rsq"), scale) %>%
-    lmer(dev_signed ~ working_memory_index_sc*rsq + age + edu + (1 | subject), .)
+    lmer(dev_signed ~ working_memory_index_sc*rsq + age + edu + sex + (1 | subject), .)
 mod_perf_signed_cog3w <- dat %>%
   filter(blocknum %in% blocks, trialnum > 1) %>%
     mutate_at(c("dev_signed","age","edu","pswq","rsq"), scale) %>%
-    lmer(dev_signed ~ executive_functioning_index_sc*pswq + age + edu +(1 | subject), .)
+    lmer(dev_signed ~ executive_functioning_index_sc*pswq + age + edu + sex + (1 | subject), .)
 mod_perf_signed_cog3r <- dat %>%
   filter(blocknum %in% blocks, trialnum > 1) %>%
     mutate_at(c("dev_signed","age","edu","pswq","rsq"), scale) %>%
-    lmer(dev_signed ~ executive_functioning_index_sc*rsq + age + edu +(1 | subject), .)
+    lmer(dev_signed ~ executive_functioning_index_sc*rsq + age + edu + sex + (1 | subject), .)
 mod_perf_signed_cog4w <- dat %>%
   filter(blocknum %in% blocks, trialnum > 1) %>%
     mutate_at(c("dev_signed","age","edu","pswq","rsq"), scale) %>%
-    lmer(dev_signed ~ attention_index_sc*pswq + age + edu + (1 | subject), .)
+    lmer(dev_signed ~ attention_index_sc*pswq + age + edu + sex + (1 | subject), .)
 mod_perf_signed_cog4r <- dat %>%
   filter(blocknum %in% blocks, trialnum > 1) %>%
     mutate_at(c("dev_signed","age","edu","pswq","rsq"), scale) %>%
-    lmer(dev_signed ~ attention_index_sc*rsq + age + edu + (1 | subject), .)
+    lmer(dev_signed ~ attention_index_sc*rsq + age + edu + sex + (1 | subject), .)
 summary(mod_perf_signed_cog1w)
 summary(mod_perf_signed_cog1r)
 summary(mod_perf_signed_cog2w)
@@ -1842,42 +1898,49 @@ summary(mod_perf_signed_cog4r)
 ```
 
 ## Associations with Individual Cognitive Measures
-```{r cognition_clinical_interactions, include=T}
+```{r cognition_clinical_interactions_individual, include=T}
 
 # Vector of predictor variables
 vars = c("vcis_sc", "line_sc", "mfigcopy_sc", "listtotal_sc", "storytotal_sc", 
          "dspan_sc", "imis_sc", "diffss_sc", "cwi3cssfinal_sc", 
          "cwi4cssfinal_sc", "coding_sc")
 
+# Scale things
+dat <- dat %>%
+  mutate(rsq_sc = scale(rsq),
+         pswq_sc = scale(pswq),
+         age_sc = scale(age),
+         edu_sc = scale(edu))
+
 # Functions to create formula for each variable
 dev_formula_fn <- function(varname) {
-  as.formula(paste("dev ~ ", varname, " + scale(age) + scale(edu) + (1 | subject)"))
+  as.formula(paste("dev ~ ", varname, " + age_sc + edu_sc + sex + (1 | subject)"))
 }
 dev_pswq_formula_fn <- function(varname) {
-  as.formula(paste("dev ~ ", varname, "*scale(pswq) + scale(age) + scale(edu) + (1 | subject)"))
+  as.formula(paste("dev ~ ", varname, "*pswq_sc + age_sc + edu_sc + sex + (1 | subject)"))
 }
 dev_rsq_formula_fn <- function(varname) {
-  as.formula(paste("dev ~ ", varname, "*scale(rsq) + scale(age) + scale(edu) + (1 | subject)"))
+  as.formula(paste("dev ~ ", varname, "*rsq_sc + age_sc + edu_sc + sex + (1 | subject)"))
 }
 
 prior_formula_fn <- function(varname) {
-  as.formula(paste("prior_strength ~ ", varname, " + scale(age) + scale(edu) + (1 | subject)"))
+  as.formula(paste("prior_strength ~ ", varname, " + age_sc + edu_sc + sex + (1 | subject)"))
 }
 prior_pswq_formula_fn <- function(varname) {
-  as.formula(paste("prior_strength ~ ", varname, "*scale(pswq) + scale(age) + scale(edu) + (1 | subject)"))
+  as.formula(paste("prior_strength ~ ", varname, "*pswq_sc + age_sc + edu_sc + sex + (1 | subject)"))
 }
 prior_rsq_formula_fn <- function(varname) {
-  as.formula(paste("prior_strength ~ ", varname, "*scale(rsq) + scale(age) + scale(edu) + (1 | subject)"))
+  as.formula(paste("prior_strength ~ ", varname, "*rsq_sc + age_sc + edu_sc + sex + (1 | subject)"))
 }
 
 update_formula_fn <- function(varname) {
-  as.formula(paste("prior_likelihood_diff_mem ~ ", varname, " + scale(age) + scale(edu)"))
+  as.formula(paste("prior_likelihood_diff_mem ~ ", varname, " + age_sc + edu_sc + sex"))
 }
 update_pswq_formula_fn <- function(varname) {
-  as.formula(paste("prior_likelihood_diff_mem ~ ", varname, "*scale(pswq) + scale(age) + scale(edu)"))
+  as.formula(paste("prior_likelihood_diff_mem ~ ", varname, "*pswq_sc + age_sc + edu_sc + sex"))
 }
 update_rsq_formula_fn <- function(varname) {
-  as.formula(paste("prior_likelihood_diff_mem ~ ", varname, "*scale(rsq) + scale(age) + scale(edu)"))
+  as.formula(paste("prior_likelihood_diff_mem ~ ", varname, "*rsq_sc + age_sc + edu_sc + sex"))
 }
 
 
@@ -1887,52 +1950,45 @@ formula_fns <- list(dev_formula_fn, dev_pswq_formula_fn, dev_rsq_formula_fn,
 
 #results <- list()
 
+
+
 for (v in vars) {
-  disp(v)
-  results[[v]] <- list()
-  
+  print(v)
+
   # MLM for performance (deviation from optimal)
-  disp("MLM, deviation from optimal")
+  print("MLM, deviation from optimal")
   model1 <- lmer(dev_formula_fn(v), data = dat)
   summary(model1)
-  disp("MLM deviation from optimal - worry interaction")
+  print("MLM deviation from optimal - worry interaction")
   model2 <- lmer(dev_pswq_formula_fn(v), data = dat)
   summary(model2)
-  disp("MLM deviation from optimal - rumination interaction")
+  print("MLM deviation from optimal - rumination interaction")
   model3 <- lmer(dev_rsq_formula_fn(v), data = dat)
   summary(model3)
   
   # MLM for prior strength 
-  disp("MLM, prior strength")
+  print("MLM, prior strength")
   model4 <- lmer(prior_formula_fn(v), data = dat)
   summary(model4)
-  disp("MLM deviation from optimal - worry interaction")
+  print("MLM deviation from optimal - worry interaction")
   model5 <- lmer(prior_pswq_formula_fn(v), data = dat)
   summary(model5)
-  disp("MLM deviation from optimal - rumination interaction")
+  print("MLM deviation from optimal - rumination interaction")
   model6 <- lmer(prior_rsq_formula_fn(v), data = dat)
   summary(model6)
 
   # Update strength regression model
-  disp("linear model, update strength")
+  print("linear model, update strength")
   model7 <- lm(update_formula_fn(v), data = dat3)
   summary(model7)
-  disp("MLM deviation from optimal - worry interaction")
+  print("MLM deviation from optimal - worry interaction")
   model8 <- lm(update_pswq_formula_fn(v), data = dat3)
   summary(model8)
-  disp("MLM deviation from optimal - rumination interaction")
+  print("MLM deviation from optimal - rumination interaction")
   model9 <- lm(update_rsq_formula_fn(v), data = dat3)
   summary(model9)
   
-  #results[[v]][1] <- model1
-  #results[[v]][2] <- model2
-  #results[[v]][3] <- model3
-  #results[[v]][4] <- model4
-  #results[[v]][5] <- model5
-  #results[[v]][6] <- model6
-  #results[[v]][7] <- model7
-  #results[[v]][8] <- model8
-  #results[[v]][9] <- model9
+ 
   print(summary(model1))
   print(summary(model2))
   print(summary(model3))
@@ -1942,8 +1998,429 @@ for (v in vars) {
   print(summary(model7))
   print(summary(model8))
   print(summary(model9))
+  
 }
 
+```  
+## Plots of clinical-cognitive interactions
+```{r cognition_clinical_interaction_PLOTS, include=T}
+#vars = c("vcis_sc", "line_sc", "mfigcopy_sc", "listtotal_sc", "storytotal_sc", 
+#         "dspan_sc", "imis_sc", "diffss_sc", "cwi3cssfinal_sc", 
+#         "cwi4cssfinal_sc", "coding_sc")
+    
+### Plot clinical-cognitive interaction effects
+  
+## mfigcopy_sc*pswq prediction of performance
+mfig_pswq_dev_model <- lmer(dev_pswq_formula_fn("mfigcopy_sc"), data = dat)
+# Get marginal effects
+eff_mfig_pswq_dev_model_mfig <- ggpredict(mfig_pswq_dev_model, terms = "mfigcopy_sc")
+eff_mfig_pswq_dev_model_pswq <- ggpredict(mfig_pswq_dev_model, terms = "pswq_sc")
+# Plot marginal effects with ggplot 
+p0 <- ggplot(eff_mfig_pswq_dev_model_mfig, aes(x = x, y = predicted)) +
+  geom_line(size = 1.2, color = "blue") +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high), alpha = 0.2) +
+  theme_bw() +
+  labs(
+    x = "mfigcopy_sc", 
+    y = "Predicted dev",
+    title = "Effect of mfigcopy on performance (dev from optimal bayesian)", 
+  ) + theme(axis.text = element_text(size=16),
+            axis.title = element_text(size = 20),
+            strip.text = element_text(size=20),
+            plot.title = element_text(size = 20, hjust = 0.5))
+p1 <- ggplot(eff_mfig_pswq_dev_model_pswq, aes(x = x, y = predicted)) +
+  geom_line(size = 1.2, color = "blue") +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high), alpha = 0.2) +
+  theme_bw() +
+  labs(
+    x = "pswq_sc", 
+    y = "Predicted dev",
+    title = "Effect of pswq on performance (dev from optimal bayesian)", 
+  ) + theme(axis.text = element_text(size=16),
+            axis.title = element_text(size = 20),
+            strip.text = element_text(size=20),
+            plot.title = element_text(size = 20, hjust = 0.5))
+ 
+#Emmeans
+emms_mfig_pswq_dev_model <- emmeans(mfig_pswq_dev_model,
+                                   ~ mfigcopy_sc | pswq_sc,
+                                   at = list(
+                                     mfigcopy_sc = c(-2, 0, 2),
+                                     pswq_sc = c(-2, 0, 2)
+                                   ),
+                                   pbkrtest.limit = 10000)
+emtrends(mfig_pswq_dev_model, ~ pswq_sc, var = "mfigcopy_sc",
+       at = list(pswq_sc = c(-2, 0, 2)),
+       pbkrtest.limit = 10000)
+contrast(
+  emtrends(mfig_pswq_dev_model, ~ pswq_sc, var = "mfigcopy_sc",
+           at = list(pswq_sc = c(-2, 0, 2)),
+           pbkrtest.limit = 10000),
+  method = "pairwise"
+)
+p2 <- emmip(mfig_pswq_dev_model, ~ mfigcopy_sc | pswq_sc,
+            at = list(
+              mfigcopy_sc = seq(-2, 2,0.5),
+              pswq_sc = c(-2, 0, 2)
+            ),
+            pbkrtest.limit = 10000,
+            CIs = TRUE)
+p2 <- p2 + theme(axis.text = element_text(size=16),
+          axis.title = element_text(size = 20),
+          strip.text = element_text(size=20),
+          plot.title = element_text(size = 20, hjust = 0.5)) + 
+labs(title = "pswq_sc",
+     y = "Dev linear prediction") 
+# Flip direction
+emms_mfig_pswq_dev_model2 <- emmeans(mfig_pswq_dev_model,
+                                   ~ pswq_sc | mfigcopy_sc,
+                                   at = list(
+                                     pswq_sc = c(-2, 0, 2),
+                                     mfigcopy_sc = c(-2, 0, 2)
+                                   ),
+                                   pbkrtest.limit = 10000)
+emtrends(mfig_pswq_dev_model, ~ mfigcopy_sc, var = "pswq_sc",
+       at = list(mfigcopy_sc = c(-2, 0, 2)),
+       pbkrtest.limit = 10000)
+contrast(
+  emtrends(mfig_pswq_dev_model, ~ mfigcopy_sc, var = "pswq_sc",
+           at = list(mfigcopy_sc = c(-2, 0, 2)),
+           pbkrtest.limit = 10000),
+  method = "pairwise"
+)
+p3 <- emmip(mfig_pswq_dev_model, ~ pswq_sc | mfigcopy_sc,
+            at = list(
+              pswq_sc = seq(-2, 2,0.5),
+              mfigcopy_sc = c(-2, 0, 2)
+            ),
+            pbkrtest.limit = 10000,
+            CIs = TRUE)
+p3 <- p3 + theme(axis.text = element_text(size=16),
+          axis.title = element_text(size = 20),
+          strip.text = element_text(size=20),
+          plot.title = element_text(size = 20, hjust = 0.5)) + 
+labs(title = "mfigcopy_sc",
+     y = "Dev linear prediction")
+#Find Johnson-Neyman interval where interaction is significant
+sim_slopes(mfig_pswq_dev_model, pred=mfigcopy_sc, modx=pswq_sc)
+sim_slopes(mfig_pswq_dev_model, pred=pswq_sc, modx=mfigcopy_sc)
+
+layout_matrix = matrix(c(1, 2,
+                         3, 4),
+                       nrow = 2, byrow = TRUE)
+grid.arrange(p0, p1, p2, p3, layout_matrix = layout_matrix)
+
+
+
+
+## mfigcopy_sc*pswq prediction of prior
+mfig_pswq_prior_model <- lmer(prior_pswq_formula_fn("mfigcopy_sc"), data = dat)
+# Get marginal effects
+eff_mfig_pswq_prior_model_mfig <- ggpredict(mfig_pswq_prior_model, terms = "mfigcopy_sc")
+eff_mfig_pswq_prior_model_pswq <- ggpredict(mfig_pswq_prior_model, terms = "pswq_sc")
+# Plot marginal effects with ggplot 
+p10 <- ggplot(eff_mfig_pswq_prior_model_mfig, aes(x = x, y = predicted)) +
+  geom_line(size = 1.2, color = "blue") +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high), alpha = 0.2) +
+  theme_bw() +
+  labs(
+    x = "mfigcopy_sc", 
+    y = "Predicted prior",
+    title = "Effect of mfigcopy on prior", 
+  ) + theme(axis.text = element_text(size=16),
+            axis.title = element_text(size = 20),
+            strip.text = element_text(size=20),
+            plot.title = element_text(size = 20, hjust = 0.5))
+p11 <- ggplot(eff_mfig_pswq_prior_model_pswq, aes(x = x, y = predicted)) +
+  geom_line(size = 1.2, color = "blue") +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high), alpha = 0.2) +
+  theme_bw() +
+  labs(
+    x = "pswq_sc", 
+    y = "Predicted prior",
+    title = "Effect of pswq on prior", 
+  ) + theme(axis.text = element_text(size=16),
+            axis.title = element_text(size = 20),
+            strip.text = element_text(size=20),
+            plot.title = element_text(size = 20, hjust = 0.5))
+ 
+#Emmeans
+emms_mfig_pswq_prior_model <- emmeans(mfig_pswq_prior_model,
+                                   ~ mfigcopy_sc | pswq_sc,
+                                   at = list(
+                                     mfigcopy_sc = c(-2, 0, 2),
+                                     pswq_sc = c(-2, 0, 2)
+                                   ),
+                                   pbkrtest.limit = 10000)
+emtrends(mfig_pswq_prior_model, ~ pswq_sc, var = "mfigcopy_sc",
+       at = list(pswq_sc = c(-2, 0, 2)),
+       pbkrtest.limit = 10000)
+contrast(
+  emtrends(mfig_pswq_prior_model, ~ pswq_sc, var = "mfigcopy_sc",
+           at = list(pswq_sc = c(-2, 0, 2)),
+           pbkrtest.limit = 10000),
+  method = "pairwise"
+)
+p12 <- emmip(mfig_pswq_prior_model, ~ mfigcopy_sc | pswq_sc,
+            at = list(
+              mfigcopy_sc = seq(-2, 2, 0.5),
+              pswq_sc = c(-2, 0, 2)
+            ),
+            pbkrtest.limit = 10000,
+            CIs = TRUE)
+p12 <- p12 + theme(axis.text = element_text(size=16),
+          axis.title = element_text(size = 20),
+          strip.text = element_text(size=20),
+          plot.title = element_text(size = 20, hjust = 0.5)) + 
+labs(title = "pswq_sc",
+     y = "prior linear prediction") 
+# Flip direction
+emms_mfig_pswq_prior_model2 <- emmeans(mfig_pswq_prior_model,
+                                   ~ pswq_sc | mfigcopy_sc,
+                                   at = list(
+                                     pswq_sc = c(-2, 0, 2),
+                                     mfigcopy_sc = c(-2, 0, 2)
+                                   ),
+                                   pbkrtest.limit = 10000)
+emtrends(mfig_pswq_prior_model, ~ mfigcopy_sc, var = "pswq_sc",
+       at = list(mfigcopy_sc = c(-2, 0, 2)),
+       pbkrtest.limit = 10000)
+contrast(
+  emtrends(mfig_pswq_prior_model, ~ mfigcopy_sc, var = "pswq_sc",
+           at = list(mfigcopy_sc = c(-2, 0, 2)),
+           pbkrtest.limit = 10000),
+  method = "pairwise"
+)
+p13 <- emmip(mfig_pswq_prior_model, ~ pswq_sc | mfigcopy_sc,
+            at = list(
+              pswq_sc = seq(-2, 2, 0.5),
+              mfigcopy_sc = c(-2, 0, 2)
+            ),
+            pbkrtest.limit = 10000,
+            CIs = TRUE)
+p13 <- p13 + theme(axis.text = element_text(size=16),
+          axis.title = element_text(size = 20),
+          strip.text = element_text(size=20),
+          plot.title = element_text(size = 20, hjust = 0.5)) + 
+labs(title = "mfigcopy_sc",
+     y = "prior linear prediction")
+#Find Johnson-Neyman interval where interaction is significant
+sim_slopes(mfig_pswq_prior_model, pred=mfigcopy_sc, modx=pswq_sc)
+sim_slopes(mfig_pswq_prior_model, pred=pswq_sc, modx=mfigcopy_sc)
+
+layout_matrix = matrix(c(1, 2,
+                         3, 4),
+                       nrow = 2, byrow = TRUE)
+grid.arrange(p10, p11, p12, p13, layout_matrix = layout_matrix)
+
+
+
+
+## storytotal_sc*worry prediction of prior
+storytotal_pswq_prior_model <- lmer(prior_pswq_formula_fn("storytotal_sc"), data = dat)
+# Get marginal effects
+eff_storytotal_pswq_prior_model_storytotal <- ggpredict(storytotal_pswq_prior_model, terms = "storytotal_sc")
+eff_storytotal_pswq_prior_model_pswq <- ggpredict(storytotal_pswq_prior_model, terms = "pswq_sc")
+# Plot marginal effects with ggplot 
+p20 <- ggplot(eff_storytotal_pswq_prior_model_storytotal, aes(x = x, y = predicted)) +
+  geom_line(size = 1.2, color = "blue") +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high), alpha = 0.2) +
+  theme_bw() +
+  labs(
+    x = "storytotal_sc", 
+    y = "Predicted prior",
+    title = "Effect of storytotal on prior", 
+  ) + theme(axis.text = element_text(size=16),
+            axis.title = element_text(size = 20),
+            strip.text = element_text(size=20),
+            plot.title = element_text(size = 20, hjust = 0.5))
+p21 <- ggplot(eff_storytotal_pswq_prior_model_pswq, aes(x = x, y = predicted)) +
+  geom_line(size = 1.2, color = "blue") +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high), alpha = 0.2) +
+  theme_bw() +
+  labs(
+    x = "pswq_sc", 
+    y = "Predicted prior",
+    title = "Effect of pswq on prior", 
+  ) + theme(axis.text = element_text(size=16),
+            axis.title = element_text(size = 20),
+            strip.text = element_text(size=20),
+            plot.title = element_text(size = 20, hjust = 0.5))
+ 
+#Emmeans
+emms_storytotal_pswq_prior_model <- emmeans(storytotal_pswq_prior_model,
+                                   ~ storytotal_sc | pswq_sc,
+                                   at = list(
+                                     storytotal_sc = c(-2, 0, 2),
+                                     pswq_sc = c(-2, 0, 2)
+                                   ),
+                                   pbkrtest.limit = 10000)
+emtrends(storytotal_pswq_prior_model, ~ pswq_sc, var = "storytotal_sc",
+       at = list(pswq_sc = c(-2, 0, 2)),
+       pbkrtest.limit = 10000)
+contrast(
+  emtrends(storytotal_pswq_prior_model, ~ pswq_sc, var = "storytotal_sc",
+           at = list(pswq_sc = c(-2, 0, 2)),
+           pbkrtest.limit = 10000),
+  method = "pairwise"
+)
+p22 <- emmip(storytotal_pswq_prior_model, ~ storytotal_sc | pswq_sc,
+            at = list(
+              storytotal_sc = seq(-2, 2, 0.5),
+              pswq_sc = c(-2, 0, 2)
+            ),
+            pbkrtest.limit = 10000,
+            CIs = TRUE)
+p22 <- p22 + theme(axis.text = element_text(size=16),
+          axis.title = element_text(size = 20),
+          strip.text = element_text(size=20),
+          plot.title = element_text(size = 20, hjust = 0.5)) + 
+labs(title = "pswq_sc",
+     y = "prior linear prediction") 
+# Flip direction
+emms_storytotal_pswq_prior_model2 <- emmeans(storytotal_pswq_prior_model,
+                                   ~ pswq_sc | storytotal_sc,
+                                   at = list(
+                                     pswq_sc = c(-2, 0, 2),
+                                     storytotal_sc = c(-2, 0, 2)
+                                   ),
+                                   pbkrtest.limit = 10000)
+emtrends(storytotal_pswq_prior_model, ~ storytotal_sc, var = "pswq_sc",
+       at = list(storytotal_sc = c(-2, 0, 2)),
+       pbkrtest.limit = 10000)
+contrast(
+  emtrends(storytotal_pswq_prior_model, ~ storytotal_sc, var = "pswq_sc",
+           at = list(storytotal_sc = c(-2, 0, 2)),
+           pbkrtest.limit = 10000),
+  method = "pairwise"
+)
+p23 <- emmip(storytotal_pswq_prior_model, ~ pswq_sc | storytotal_sc,
+            at = list(
+              pswq_sc = seq(-2, 2, 0.5),
+              storytotal_sc = c(-2, 0, 2)
+            ),
+            pbkrtest.limit = 10000,
+            CIs = TRUE)
+p23 <- p23 + theme(axis.text = element_text(size=16),
+          axis.title = element_text(size = 20),
+          strip.text = element_text(size=20),
+          plot.title = element_text(size = 20, hjust = 0.5)) + 
+labs(title = "storytotal_sc",
+     y = "prior linear prediction")
+#Find Johnson-Neyman interval where interaction is significant
+sim_slopes(storytotal_pswq_prior_model, pred=storytotal_sc, modx=pswq_sc)
+sim_slopes(storytotal_pswq_prior_model, pred=pswq_sc, modx=storytotal_sc)
+
+layout_matrix = matrix(c(1, 2,
+                         3, 4),
+                       nrow = 2, byrow = TRUE)
+
+grid.arrange(p20, p21, p22, p23, layout_matrix = layout_matrix)
+
+
+
+
+
+
+## coding*rumination prediction of performance
+coding_rsq_dev_model <- lmer(dev_rsq_formula_fn("coding_sc"), data = dat)
+# Get marginal effects
+eff_coding_rsq_dev_model_coding <- ggpredict(coding_rsq_dev_model, terms = "coding_sc")
+eff_coding_rsq_dev_model_rsq <- ggpredict(coding_rsq_dev_model, terms = "rsq_sc")
+# Plot marginal effects with ggplot 
+p30 <- ggplot(eff_coding_rsq_dev_model_coding, aes(x = x, y = predicted)) +
+  geom_line(size = 1.2, color = "blue") +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high), alpha = 0.2) +
+  theme_bw() +
+  labs(
+    x = "coding_sc", 
+    y = "Predicted dev",
+    title = "Effect of coding on performance (dev from optimal bayesian)", 
+  ) + theme(axis.text = element_text(size=16),
+            axis.title = element_text(size = 20),
+            strip.text = element_text(size=20),
+            plot.title = element_text(size = 20, hjust = 0.5))
+p31 <- ggplot(eff_coding_rsq_dev_model_rsq, aes(x = x, y = predicted)) +
+  geom_line(size = 1.2, color = "blue") +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high), alpha = 0.2) +
+  theme_bw() +
+  labs(
+    x = "rsq_sc", 
+    y = "Predicted dev",
+    title = "Effect of rsq on performance (dev from optimal bayesian)", 
+  ) + theme(axis.text = element_text(size=16),
+            axis.title = element_text(size = 20),
+            strip.text = element_text(size=20),
+            plot.title = element_text(size = 20, hjust = 0.5))
+ 
+#Emmeans
+emms_coding_rsq_dev_model <- emmeans(coding_rsq_dev_model,
+                                   ~ coding_sc | rsq_sc,
+                                   at = list(
+                                     coding_sc = c(-2, 0, 2),
+                                     rsq_sc = c(-2, 0, 2)
+                                   ),
+                                   pbkrtest.limit = 10000)
+emtrends(coding_rsq_dev_model, ~ rsq_sc, var = "coding_sc",
+       at = list(rsq_sc = c(-2, 0, 2)),
+       pbkrtest.limit = 10000)
+contrast(
+  emtrends(coding_rsq_dev_model, ~ rsq_sc, var = "coding_sc",
+           at = list(rsq_sc = c(-2, 0, 2)),
+           pbkrtest.limit = 10000),
+  method = "pairwise"
+)
+p32 <- emmip(coding_rsq_dev_model, ~ coding_sc | rsq_sc,
+            at = list(
+              coding_sc = seq(-2, 2,0.5),
+              rsq_sc = c(-2, 0, 2)
+            ),
+            pbkrtest.limit = 10000,
+            CIs = TRUE)
+p32 <- p32 + theme(axis.text = element_text(size=16),
+          axis.title = element_text(size = 20),
+          strip.text = element_text(size=20),
+          plot.title = element_text(size = 20, hjust = 0.5)) + 
+labs(title = "rsq_sc",
+     y = "Dev linear prediction") 
+# Flip direction
+emms_coding_rsq_dev_model2 <- emmeans(coding_rsq_dev_model,
+                                   ~ rsq_sc | coding_sc,
+                                   at = list(
+                                     rsq_sc = c(-2, 0, 2),
+                                     coding_sc = c(-2, 0, 2)
+                                   ),
+                                   pbkrtest.limit = 10000)
+emtrends(coding_rsq_dev_model, ~ coding_sc, var = "rsq_sc",
+       at = list(coding_sc = c(-2, 0, 2)),
+       pbkrtest.limit = 10000)
+contrast(
+  emtrends(coding_rsq_dev_model, ~ coding_sc, var = "rsq_sc",
+           at = list(coding_sc = c(-2, 0, 2)),
+           pbkrtest.limit = 10000),
+  method = "pairwise"
+)
+p33 <- emmip(coding_rsq_dev_model, ~ rsq_sc | coding_sc,
+            at = list(
+              rsq_sc = seq(-2, 2,0.5),
+              coding_sc = c(-2, 0, 2)
+            ),
+            pbkrtest.limit = 10000,
+            CIs = TRUE)
+p33 <- p33 + theme(axis.text = element_text(size=16),
+          axis.title = element_text(size = 20),
+          strip.text = element_text(size=20),
+          plot.title = element_text(size = 20, hjust = 0.5)) + 
+labs(title = "coding_sc",
+     y = "Dev linear prediction")
+#Find Johnson-Neyman interval where interaction is significant
+sim_slopes(coding_rsq_dev_model, pred=coding_sc, modx=rsq_sc)
+sim_slopes(coding_rsq_dev_model, pred=rsq_sc, modx=coding_sc)
+
+layout_matrix = matrix(c(1, 2,
+                         3, 4),
+                       nrow = 2, byrow = TRUE)
+grid.arrange(p30, p31, p32, p33, layout_matrix = layout_matrix)
 
 
 ```
