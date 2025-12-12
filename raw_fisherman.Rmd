@@ -1912,6 +1912,12 @@ dat <- dat %>%
          age_sc = scale(age),
          edu_sc = scale(edu))
 
+dat3 <- dat3 %>%
+  mutate(rsq_sc = scale(rsq),
+         pswq_sc = scale(pswq),
+         age_sc = scale(age),
+         edu_sc = scale(edu))
+
 # Functions to create formula for each variable
 dev_formula_fn <- function(varname) {
   as.formula(paste("dev ~ ", varname, " + age_sc + edu_sc + sex + (1 | subject)"))
@@ -2421,6 +2427,130 @@ layout_matrix = matrix(c(1, 2,
                          3, 4),
                        nrow = 2, byrow = TRUE)
 grid.arrange(p30, p31, p32, p33, layout_matrix = layout_matrix)
+
+
+
+
+
+
+#Andrew's code to make interaction plots
+#https://interactions.jacob-long.com/reference/interact_plot
+p100 <- interact_plot(
+  mfig_pswq_dev_model,
+  pswq_sc,
+  mfigcopy_sc,
+  modx.values="plus-minus", # gives just the high and low
+  plot.points=F,
+  interval=T,
+  int.type=T,
+  var.lty=F,
+  line.thickness = 2,
+  colors = c("#FF8C00","#000080"),
+  legend.main = "Figure copy\n(scaled)") +
+  labs(
+    x = "Worry (scaled)",
+    y = "Performance\n(deviation from optimal)",
+    title = "Interaction of figure copy and\nworry to predict performance"
+  ) +
+  theme_bw() +
+  theme(
+    plot.title = element_text(size = 20, face = "bold", hjust=0.5),
+    axis.title.x = element_text(size = 18, face = "bold"),
+    axis.title.y = element_text(size = 18, face = "bold"),
+    axis.text.x  = element_text(size = 16, hjust=0.5),
+    axis.text.y  = element_text(size = 16),
+    legend.title = element_text(size = 16),
+    legend.text  = element_text(size = 14),
+    panel.grid = element_blank()
+  )
+
+p101 <- interact_plot(
+  mfig_pswq_prior_model,
+  pswq_sc,
+  mfigcopy_sc,
+  modx.values="plus-minus", # gives just the high and low
+  plot.points=F,
+  interval=T,
+  int.type=T,
+  var.lty=F,
+  line.thickness = 2,
+  colors = c("#FF8C00","#000080"),
+  legend.main = "Figure copy\n(scaled)") +
+  labs(
+    x = "Worry (scaled)",
+    y = "Weight on prior",
+    title = "Interaction of figure copy and\nworry to predict weight on prior"
+  ) +
+  theme_bw() +
+  theme(
+    plot.title = element_text(size = 20, face = "bold", hjust=0.5),
+    axis.title.x = element_text(size = 18, face = "bold"),
+    axis.title.y = element_text(size = 18, face = "bold"),
+    axis.text.x  = element_text(size = 16, hjust=0.5),
+    axis.text.y  = element_text(size = 16),
+    legend.title = element_text(size = 16),
+    legend.text  = element_text(size = 14),
+    panel.grid = element_blank()
+  )
+
+p102 <- interact_plot(
+  storytotal_pswq_prior_model,
+  pswq_sc,
+  storytotal_sc,
+  modx.values="plus-minus", # gives just the high and low
+  plot.points=F,
+  interval=T,
+  int.type=T,
+  var.lty=F,
+  line.thickness = 2,
+  colors = c("#FF8C00","#000080"),
+  legend.main = "Story total\n(scaled)") +
+  labs(
+    x = "Worry (scaled)",
+    y = "Weight on prior",
+    title = "Interaction of story total and\nworry to predict weight on prior"
+  ) +
+  theme_bw() +
+  theme(
+    plot.title = element_text(size = 20, face = "bold", hjust=0.5),
+    axis.title.x = element_text(size = 18, face = "bold"),
+    axis.title.y = element_text(size = 18, face = "bold"),
+    axis.text.x  = element_text(size = 16, hjust=0.5),
+    axis.text.y  = element_text(size = 16),
+    legend.title = element_text(size = 16),
+    legend.text  = element_text(size = 14),
+    panel.grid = element_blank()
+  )
+
+p103 <- interact_plot(
+  coding_rsq_dev_model,
+  rsq_sc,
+  coding_sc,
+  modx.values="plus-minus", # gives just the high and low
+  plot.points=F,
+  interval=T,
+  int.type=T,
+  var.lty=F,
+  lty=1,
+  line.thickness = 2,
+  colors = c("#FF8C00","#000080"),
+  legend.main = "Coding (scaled)") +
+  labs(
+    x = "Rumination (scaled)",
+    y = "Performance\n(deviation from optimal)",
+    title = "Interaction of coding and\nrumination to predict performance"
+  ) +
+  theme_bw() +
+  theme(
+    plot.title = element_text(size = 20, face = "bold", hjust=0.5),
+    axis.title.x = element_text(size = 18, face = "bold"),
+    axis.title.y = element_text(size = 18, face = "bold"),
+    axis.text.x  = element_text(size = 16, hjust=0.5),
+    axis.text.y  = element_text(size = 16),
+    legend.title = element_text(size = 16),
+    legend.text  = element_text(size = 14),
+    panel.grid = element_blank()
+  )
 
 
 ```
