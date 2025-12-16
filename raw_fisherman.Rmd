@@ -514,6 +514,42 @@ n <- length(ids)
 
 ```
 
+# Sample characteristics
+```{r sample_characteristics, include=T}
+final_clin_dat <- clin_dat %>% filter(raw_id %in% ids)
+final_clin_dat <- final_clin_dat %>% mutate(
+  age = round((status_consent_date - dob)/365.2425)
+)
+summary(final_clin_dat$age)
+sd(final_clin_dat$age)
+table(final_clin_dat$gender) # 1=male, 2=female, 3=other
+table(final_clin_dat$race) #1=white, 2=black, 4=asian, 6=more than one race
+
+table(final_clin_dat$pswq_total) #worry
+summary(final_clin_dat$pswq_total,na.omit=TRUE)
+sd(final_clin_dat$pswq_total,na.rm=TRUE)
+
+table(final_clin_dat$rsq_total) #rumination
+summary(final_clin_dat$rsq_total,na.omit=TRUE)
+sd(final_clin_dat$rsq_total,na.rm=TRUE)
+
+table(final_clin_dat$hars_score) #anxiety
+summary(final_clin_dat$hars_score,na.omit=TRUE)
+sd(final_clin_dat$hars_score,na.rm=TRUE)
+
+table(final_clin_dat$hamd_total) #depression
+summary(final_clin_dat$hamd_total,na.omit=TRUE)
+sd(final_clin_dat$hamd_total,na.rm=TRUE)
+
+#telephone MOCA (t-moca; max = 22, cutoff for MCI is 18)
+table(final_clin_dat$mtotal)
+summary(final_clin_dat$mtotal,na.omit=TRUE)
+sd(final_clin_dat$mtotal,na.rm=TRUE)
+
+```
+
+
+
 # Behavioral exploration
 
 ## Add behavioral quantification...
@@ -690,9 +726,11 @@ dat$sex <- NA
 dat$pswq <- NA
 dat$rsq <- NA
 dat$hars <- NA
+dat$hamd <- NA
 dat2$pswq <- NA
 dat2$rsq <- NA
 dat2$hars <- NA
+dat2$hamd <- NA
 for(i in ids) {
 
     # check for data
@@ -709,15 +747,17 @@ for(i in ids) {
     dat$pswq[dat$subject == i] <- clin_dat$pswq_total[clin_dat$raw_id == i]
     dat$rsq[dat$subject == i] <- clin_dat$rsq_total[clin_dat$raw_id == i]
     dat$hars[dat$subject == i] <- clin_dat$hars_score[clin_dat$raw_id == i]
+    dat$hamd[dat$subject == i] <- clin_dat$hamd_total[clin_dat$raw_id == i]
     
     # block level data
-    dat2$age[dat2$subject == i] <- clin_dat$status_consent_date[clin_dat$raw_id == i] - clin_dat$dob[clin_dat$raw_id == i]
+    dat2$age[dat2$subject == i] <- round((clin_dat$status_consent_date[clin_dat$raw_id == i] - clin_dat$dob[clin_dat$raw_id == i])/365.2425)
     dat2$edu[dat2$subject == i] <- clin_dat$edu[clin_dat$raw_id == i]
     dat2$race[dat2$subject == i] <- clin_dat$race[clin_dat$raw_id == i]
     dat2$sex[dat2$subject == i] <- clin_dat$gender[clin_dat$raw_id == i]
     dat2$pswq[dat2$subject == i] <- clin_dat$pswq_total[clin_dat$raw_id == i]
     dat2$rsq[dat2$subject == i] <- clin_dat$rsq_total[clin_dat$raw_id == i]
     dat2$hars[dat2$subject == i] <- clin_dat$hars_score[clin_dat$raw_id == i]
+    dat2$hamd[dat2$subject == i] <- clin_dat$hamd_total[clin_dat$raw_id == i]
 
 }
 
@@ -790,6 +830,7 @@ dat3$prior_likelihood_diff_mem <- dat3$prior_weight_mem - dat3$likelihood_weight
 
 ```
 
+
 ## Clinical associations of behavior
 
 ### Prior strength
@@ -829,6 +870,17 @@ g_prior_mean1_hars <- dat3 %>%
           panel.background=element_blank(),
           axis.line=element_line(),
           axis.ticks=element_blank())
+g_prior_mean1_hamd <- dat3 %>%
+    ggplot(aes(hamd, prior_mean1)) +
+    geom_point() +
+    stat_smooth(method="lm") +
+    stat_cor(method="spearman", label.y.npc=0.1) +
+    xlab("HAMD") +
+    ylab("Mean weight of mod. prior") +
+    theme(strip.background=element_blank(),
+          panel.background=element_blank(),
+          axis.line=element_line(),
+          axis.ticks=element_blank())
 
 # Moderate prior strength models
 mod_prior1_pswq <- dat %>%
@@ -837,12 +889,16 @@ mod_prior1_pswq <- dat %>%
     lmer(prior_strength ~ pswq + (1 | subject), .)
 mod_prior1_rsq <- dat %>%
     filter(trialnum == 1, abs(POS) == 1) %>%
-    mutate_at(c("prior_strength", "pswq"), scale) %>%
+    mutate_at(c("prior_strength", "rsq"), scale) %>%
     lmer(prior_strength ~ rsq + (1 | subject), .)
 mod_prior1_hars <- dat %>%
     filter(trialnum == 1, abs(POS) == 1) %>%
-    mutate_at(c("prior_strength", "pswq"), scale) %>%
+    mutate_at(c("prior_strength", "hars"), scale) %>%
     lmer(prior_strength ~ hars + (1 | subject), .)
+mod_prior1_hamd <- dat %>%
+    filter(trialnum == 1, abs(POS) == 1) %>%
+    mutate_at(c("prior_strength", "hamd"), scale) %>%
+    lmer(prior_strength ~ hamd + (1 | subject), .)
 
 # Plot mean values for strong prior strength
 g_prior_mean2_pswq <- dat3 %>%
@@ -878,6 +934,17 @@ g_prior_mean2_hars <- dat3 %>%
           panel.background=element_blank(),
           axis.line=element_line(),
           axis.ticks=element_blank())
+g_prior_mean2_hamd <- dat3 %>%
+    ggplot(aes(hamd, prior_mean2)) +
+    geom_point() +
+    stat_smooth(method="lm") +
+    stat_cor(method="spearman", label.y.npc=0.1) +
+    xlab("HAMD") +
+    ylab("Mean weight of strong prior") +
+    theme(strip.background=element_blank(),
+          panel.background=element_blank(),
+          axis.line=element_line(),
+          axis.ticks=element_blank())
 
 mod_prior2_pswq <- dat %>%
     filter(trialnum == 1, abs(POS) == 2) %>%
@@ -891,6 +958,10 @@ mod_prior2_hars <- dat %>%
     filter(trialnum == 1, abs(POS) == 2) %>%
     mutate_at(c("prior_strength", "hars"), scale) %>%
     lmer(prior_strength ~ hars + (1 | subject), .)
+mod_prior2_hamd <- dat %>%
+    filter(trialnum == 1, abs(POS) == 2) %>%
+    mutate_at(c("prior_strength", "hamd"), scale) %>%
+    lmer(prior_strength ~ hamd + (1 | subject), .)
 
 # grid.arrange(g_prior_mean1_pswq, g_prior_mean1_rsq, g_prior_mean1_hars,
 #              g_prior_mean2_pswq, g_prior_mean2_rsq, g_prior_mean2_hars,
@@ -924,7 +995,14 @@ tmp <- dat %>%
 g_prior_hars <- tmp$g
 mod_prior_hars <- tmp$mod
 
-grid.arrange(g_prior_pswq, g_prior_rsq, g_prior_hars, nrow=1, ncol=3)
+# HAMD
+tmp <- dat %>%
+    filter(trialnum == 1, POS != 0) %>%
+    model_clinical_behavior(dat3, "prior_strength", "hamd", "Prior Strength", "Depression (HAMD)", 15, 0.75, "prior_mean1")
+g_prior_hamd <- tmp$g
+mod_prior_hamd <- tmp$mod
+
+grid.arrange(g_prior_pswq, g_prior_rsq, g_prior_hars, g_prior_hamd, nrow=2, ncol=2)
 
 ```
 
@@ -945,18 +1023,25 @@ mod_dev_abs_pswq <- tmp$mod
 # RSQ
 tmp <- dat %>%
     filter(trialnum > 1, blocknum != 11, blocknum != 20) %>%
-    model_clinical_behavior(dat3, "dev", "rsq", "Deviation (abs.)", "Rumination (RSQ)", 25, 0.22, "dev_full_abs")
+    model_clinical_behavior(dat3, "dev", "rsq", "Deviation (abs.)", "Rumination (RSQ)", 60, 0.22, "dev_full_abs")
 g_dev_abs_rsq <- tmp$g
 mod_dev_abs_rsq <- tmp$mod
 
 # HARS
 tmp <- dat %>%
     filter(trialnum > 1, blocknum != 11, blocknum != 20) %>%
-    model_clinical_behavior(dat3, "dev", "hars", "Deviation (abs.)", "Anxiety (HARS)", 60, 0.21, "dev_full_abs")
+    model_clinical_behavior(dat3, "dev", "hars", "Deviation (abs.)", "Anxiety (HARS)", 20, 0.21, "dev_full_abs")
 g_dev_abs_hars <- tmp$g
 mod_dev_abs_hars <- tmp$mod
 
-grid.arrange(g_dev_abs_pswq, g_dev_abs_rsq, g_dev_abs_hars, nrow=1, ncol=3)
+# HAMD
+tmp <- dat %>%
+    filter(trialnum > 1, blocknum != 11, blocknum != 20) %>%
+    model_clinical_behavior(dat3, "dev", "hamd", "Deviation (abs.)", "Depression (HAMD)", 15, 0.21, "dev_full_abs")
+g_dev_abs_hamd <- tmp$g
+mod_dev_abs_hamd <- tmp$mod
+
+grid.arrange(g_dev_abs_pswq, g_dev_abs_rsq, g_dev_abs_hars, g_dev_abs_hamd, nrow=2, ncol=2)
 
 ```
 
@@ -990,9 +1075,17 @@ g_prior_weight_mem_hars <- dat3 %>%
     stat_cor(method="pearson", label.y.npc=0.1) +
     xlab("HARS") +
     ylab("Prior Weight (mem)")
+g_prior_weight_mem_hamd <- dat3 %>%
+    filter(prior_weight_mem > 0.25) %>% 
+    ggplot(aes(hamd, prior_weight_mem)) +
+    geom_point() +
+    stat_smooth(method="lm") +
+    stat_cor(method="pearson", label.y.npc=0.1) +
+    xlab("HAMD") +
+    ylab("Prior Weight (mem)")
 
 grid.arrange(g_prior_weight_mem_pswq, g_prior_weight_mem_rsq, g_prior_weight_mem_hars,
-             nrow=1, ncol=3)
+             g_prior_weight_mem_hamd, nrow=2, ncol=2)
 
 ```
 
@@ -1023,9 +1116,18 @@ g_likelihood_weight_mem_hars <- dat3 %>%
     stat_cor(method="pearson", label.y.npc=0.9) +
     xlab("HARS") +
     ylab("Likelihood Weight (mem)")
+g_likelihood_weight_mem_hamd <- dat3 %>%
+    filter(likelihood_weight_mem < 0.88) %>% 
+    ggplot(aes(hamd, likelihood_weight_mem)) +
+    geom_point() +
+    stat_smooth(method="lm") +
+    stat_cor(method="pearson", label.y.npc=0.9) +
+    xlab("HAMD") +
+    ylab("Likelihood Weight (mem)")
 
-grid.arrange(g_likelihood_weight_mem_pswq, g_likelihood_weight_mem_rsq, g_likelihood_weight_mem_hars,
-             nrow=1, ncol=3)
+grid.arrange(g_likelihood_weight_mem_pswq, g_likelihood_weight_mem_rsq, 
+             g_likelihood_weight_mem_hars, g_likelihood_weight_mem_hamd,
+             nrow=2, ncol=2)
 
 ```
 
@@ -1047,19 +1149,32 @@ mod_updateStrengthMEM_hars <- dat3 %>%
     filter(prior_likelihood_diff_mem > -0.75) %>%
     mutate_at(c("prior_likelihood_diff_mem", "hars"), scale) %>%
     lm(prior_likelihood_diff_mem ~ hars, .)
+mod_updateStrengthMEM_hamd <- dat3 %>%
+    filter(prior_likelihood_diff_mem > -0.75) %>%
+    mutate_at(c("prior_likelihood_diff_mem", "hamd"), scale) %>%
+    lm(prior_likelihood_diff_mem ~ hamd, .)
 mod_updateStrengthMEM_pswq_rsq_hars <- dat3 %>%
     filter(prior_likelihood_diff_mem > -0.75) %>%
     mutate_at(c("prior_likelihood_diff_mem", "pswq", "rsq", "hars"), scale) %>%
     lm(prior_likelihood_diff_mem ~ pswq + rsq + hars, .)
-summary(mod_updateStrengthMEM_pswq_rsq_hars)
+mod_updateStrengthMEM_pswq_rsq_hars_hamd <- dat3 %>%
+    filter(prior_likelihood_diff_mem > -0.75) %>%
+    mutate_at(c("prior_likelihood_diff_mem", "pswq", "rsq", "hars", "hamd"), scale) %>%
+    lm(prior_likelihood_diff_mem ~ pswq + rsq + hars + hamd, .)
+summary(mod_updateStrengthMEM_pswq)
+summary(mod_updateStrengthMEM_rsq)
+summary(mod_updateStrengthMEM_hars)
+summary(mod_updateStrengthMEM_hamd)
+summary(mod_updateStrengthMEM_pswq_rsq_hars_hamd)
 
 lab = sprintf("b=%0.2f, p=%0.2f", coef(summary(mod_updateStrengthMEM_pswq))[2, 1], coef(summary(mod_updateStrengthMEM_pswq))[2, 4])
 g_prior_likelihood_diff_mem_pswq <- dat3 %>%
     filter(prior_likelihood_diff_mem > -0.75) %>%
     ggplot(aes(pswq, prior_likelihood_diff_mem)) +
-    geom_point(size=2) +
-    stat_smooth(method="lm", size=2, color="blue", fill=rgb(0, 0, 1, 0.2)) +
-    annotate(geom="text", x=30, y=-0.4, label=lab, color="blue", size=18/.pt) +
+    geom_point(size=3) +
+    stat_smooth(method="lm", size=3, color="gray", fill="gray") +
+    #stat_smooth(method="lm", size=2, color="lightgray", fill=rgb(0, 0, 1, 0.2)) +
+    annotate(geom="text", x=70, y=-0.4, label=lab, color="gray", size=18/.pt) +
     xlab("Worry (PSWQ)") +
     ylab("Update Strength") +
     theme(text=element_text(size=18),
@@ -1071,9 +1186,10 @@ lab = sprintf("b=%0.2f, p=%0.2f", coef(summary(mod_updateStrengthMEM_rsq))[2, 1]
 g_prior_likelihood_diff_mem_rsq <- dat3 %>%
     filter(prior_likelihood_diff_mem > -0.75) %>%
     ggplot(aes(rsq, prior_likelihood_diff_mem)) +
-    geom_point(size=2) +
-    stat_smooth(method="lm", size=2, color="red", fill=rgb(1, 0, 0, 0.2)) +
-    annotate(geom="text", x=35, y=-0.4, label=lab, color="red", size=18/.pt) +
+    geom_point(size=3) +
+    stat_smooth(method="lm", size=3, color="darkmagenta", fill="darkmagenta") +
+    #stat_smooth(method="lm", size=2, color="red", fill=rgb(1, 0, 0, 0.2)) +
+    annotate(geom="text", x=65, y=-0.4, label=lab, color="darkmagenta", size=18/.pt) +
     xlab("Rumination (RSQ)") +
     ylab("Update Strength") +
     theme(text=element_text(size=18),
@@ -1085,9 +1201,10 @@ lab = sprintf("b=%0.2f, p=%0.2f", coef(summary(mod_updateStrengthMEM_hars))[2, 1
 g_prior_likelihood_diff_mem_hars <- dat3 %>%
     filter(prior_likelihood_diff_mem > -0.75) %>%
     ggplot(aes(hars, prior_likelihood_diff_mem)) +
-    geom_point(size=2) +
-    stat_smooth(method="lm", size=2, color="blue", fill=rgb(0, 0, 1, 0.2)) +
-    annotate(geom="text", x=30, y=-0.4, label=lab, color="blue", size=18/.pt) +
+    geom_point(size=3) +
+    stat_smooth(method="lm", size=3, color="gray", fill="gray") +
+    #stat_smooth(method="lm", size=2, color="blue", fill=rgb(0, 0, 1, 0.2)) +
+    annotate(geom="text", x=30, y=-0.2, label=lab, color="gray", size=18/.pt) +
     xlab("Anxiety (HARS)") +
     ylab("Update Strength") +
     theme(text=element_text(size=18),
@@ -1095,9 +1212,25 @@ g_prior_likelihood_diff_mem_hars <- dat3 %>%
           panel.background=element_blank(),
           axis.line=element_line(),
           axis.ticks=element_blank())
+lab = sprintf("b=%0.2f, p=%0.2f", coef(summary(mod_updateStrengthMEM_hamd))[2, 1], coef(summary(mod_updateStrengthMEM_hamd))[2, 4])
+g_prior_likelihood_diff_mem_hamd <- dat3 %>%
+    filter(prior_likelihood_diff_mem > -0.75) %>%
+    ggplot(aes(hamd, prior_likelihood_diff_mem)) +
+    geom_point(size=3) +
+    stat_smooth(method="lm", size=3, color="gray", fill="gray") +
+    #stat_smooth(method="lm", size=2, color="lightgray", fill=rgb(0, 0, 1, 0.2)) +
+    annotate(geom="text", x=17, y=0.7, label=lab, color="gray", size=18/.pt) +
+    xlab("Depression (HAMD)") +
+    ylab("Update Strength") +
+    theme(text=element_text(size=18),
+          strip.background=element_blank(),
+          panel.background=element_blank(),
+          axis.line=element_line(),
+          axis.ticks=element_blank())
 
-grid.arrange(g_prior_likelihood_diff_mem_pswq, g_prior_likelihood_diff_mem_rsq, g_prior_likelihood_diff_mem_hars,
-             nrow=1, ncol=3)
+grid.arrange(g_prior_likelihood_diff_mem_pswq, g_prior_likelihood_diff_mem_rsq, 
+             g_prior_likelihood_diff_mem_hars, g_prior_likelihood_diff_mem_hamd,
+             nrow=2, ncol=2)
 
 
 ```
@@ -1174,7 +1307,7 @@ Working memory: list learning (raw total score), story memory, digit span, immed
  RBANS List Learning Total (listtotal *use raw total score per Andrew) Z-Score (listtotal_z)
  RBANS Story Memory Total Z-Score (storytotal_z)
  RBANS Digit Span Raw Z-Score (dspan_z)
- RBANS Immediate Memory Index Score (imis)
+ RBANS Immediate Memory Index Score (imis) - separate since it is already an index score
  Hypotheses: positive associations with performance, negative association with update strength
 
 Executive functioning: trails scaled score, cover word cond 3, 4 (stroop, measure of cognitive inhibition; condition 3 is inhibition, ability to suppress an automatic, prepotent response in favor of a different, less automatic one; condition 4 is inhibition/switching, most complex part of the test and measures mental flexibility and cognitive set-shifting)
@@ -1212,7 +1345,7 @@ select_clin_dat <- select_clin_dat %>% mutate (
   mfigcopy_sc = as.vector(scale(mfigcopy_z)),
   visuospatial_index = rowMeans(cbind(vcis_sc, line_sc, mfigcopy_sc), na.rm=TRUE),
   visuospatial_index_sc = as.vector(scale(visuospatial_index)),
-  ln_adj_visuospatial_index_sc = as.vector(scale(log(max(visuospatial_index, na.rm = TRUE) + 1 - visuospatial_index))),
+  ln_adj_visuospatial_index_sc = -as.vector(scale(log(max(visuospatial_index, na.rm = TRUE) + 1 - visuospatial_index))),
   #working memory
   listtotal_sc = as.vector(scale(listtotal)),
   storytotal_sc = as.vector(scale(storytotal_z)),
@@ -1251,10 +1384,7 @@ if (!("visuospatial_index" %in% colnames(dat))) {
 ```{r cognition_correlations, include=T, fig.width=12, fig.height=10}
 
 # Test broadly for correlations
-#dat_cog <- dat %>% select(edu.x,prior_strength)
-#dat_age_prior <- dat %>% select(subject,age,edu,prior_strength) #don't think we can use prior strength here
 dat_age_prior <- dat %>% select(subject,age,edu) %>% unique() #don't think we can use prior strength here
-#dat3_wage <- left_join(dat_age_prior,dat3,by="subject") 
 dat3_cog_all <- dat3 %>%
   mutate(edu_sc = scale(edu),
          age_sc = scale(age),
@@ -1318,6 +1448,8 @@ dat3_all_spearman_p_values <- dat3_all_spearman_correlation_results$P
 #only keep significant results
 dat3_all_pearson_sig_results <- dat3_all_pearson_correlation_results
 dat3_all_pearson_sig_results$r[dat3_all_pearson_correlation_results$P>0.05]=0 #really liberal significance thresholding for visualization
+dat3_all_spearman_sig_results <- dat3_all_pearson_correlation_results
+dat3_all_spearman_sig_results$r[dat3_all_pearson_correlation_results$P>0.05]=0 #really liberal
 
 #pdf("dat3_all_plot.pdf", width = 10, height = 10)
 corrplot(dat3_all_pearson_correlation_results$r, type="upper", col=rev(mycolors), main = "All results") 
@@ -1495,6 +1627,105 @@ summary(mod_perf_cog3)
 summary(mod_perf_cog4)
 
 
+#Plot deviation from bayesian optimal the other way, using the marginal effects extracted from lmer
+# visuospatial
+eff_visuospatial_dev <- ggpredict(mod_perf_cog, terms = "ln_adj_visuospatial_index_sc") # marginal effect of visuospatial (scaled in model), on dev
+g_dev_visuospatial <- ggplot(eff_visuospatial_dev, aes(x = x, y = predicted)) +
+  geom_point(
+    data = dat3,
+    aes(x = ln_adj_visuospatial_index_sc, y = dev_sc),
+    size = 3,
+    color = "black"
+  ) +
+  geom_line(size = 3, color = "gray") +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high),
+              alpha = 0.4,
+              fill  = "gray") +
+  labs(
+    x = "Visuospatial index (transformed, z-score)",
+    y = "Deviation from\nBayesian Optimal (a.u.)"
+  ) +
+  theme(
+    text            = element_text(size = 18),
+    strip.background= element_blank(),
+    panel.background= element_blank(),
+    axis.line       = element_line(),
+    axis.ticks      = element_blank()
+  )
+# WM
+eff_workingmemory_dev <- ggpredict(mod_perf_cog, terms = "working_memory_index_sc") # marginal effect 
+g_dev_workingmemory <- ggplot(eff_workingmemory_dev, aes(x = x, y = predicted)) +
+  geom_point(
+    data = dat3,
+    aes(x = working_memory_index_sc, y = dev_sc),
+    size = 3,
+    color = "black"
+  ) +
+  geom_line(size = 3, color = "darkmagenta") +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high),
+              alpha = 0.4,
+              fill  = "darkmagenta") +
+  labs(
+    x = "Working memory index (z-score)",
+    y = "Deviation from\nBayesian Optimal (a.u.)"
+  ) +
+  theme(
+    text            = element_text(size = 18),
+    strip.background= element_blank(),
+    panel.background= element_blank(),
+    axis.line       = element_line(),
+    axis.ticks      = element_blank()
+  )
+# Exec
+eff_executivefunction_dev <- ggpredict(mod_perf_cog, terms = "executive_functioning_index_sc") # marginal effect 
+g_dev_executivefunction <- ggplot(eff_executivefunction_dev, aes(x = x, y = predicted)) +
+  geom_point(
+    data = dat3,
+    aes(x = executive_functioning_index_sc, y = dev_sc),
+    size = 3,
+    color = "black"
+  ) +
+  geom_line(size = 3, color = "gray") +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high),
+              alpha = 0.4,
+              fill  = "gray") +
+  labs(
+    x = "Executive function index (z-score)",
+    y = "Deviation from\nBayesian Optimal (a.u.)"
+  ) +
+  theme(
+    text            = element_text(size = 18),
+    strip.background= element_blank(),
+    panel.background= element_blank(),
+    axis.line       = element_line(),
+    axis.ticks      = element_blank()
+  )
+# ATT
+eff_attention_dev <- ggpredict(mod_perf_cog, terms = "attention_index_sc") # marginal effect
+g_dev_attention <- ggplot(eff_attention_dev, aes(x = x, y = predicted)) +
+  geom_point(
+    data = dat3,
+    aes(x = attention_index_sc, y = dev_sc),
+    size = 3,
+    color = "black"
+  ) +
+  geom_line(size = 3, color = "gray") +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high),
+              alpha = 0.4,
+              fill  = "gray") +
+  labs(
+    x = "Attention index (z-score)",
+    y = "Deviation from\nBayesian Optimal (a.u.)"
+  ) +
+  theme(
+    text            = element_text(size = 18),
+    strip.background= element_blank(),
+    panel.background= element_blank(),
+    axis.line       = element_line(),
+    axis.ticks      = element_blank()
+  )
+grid.arrange(g_dev_visuospatial, g_dev_workingmemory, g_dev_executivefunction, g_dev_attention, nrow=2, ncol=2)
+
 
 ```
 
@@ -1502,57 +1733,45 @@ summary(mod_perf_cog4)
 ```{r cognition_plots_individual, include=T, fig.width=15, fig.height=10}
 
 # Plots for performance
-lab = sprintf("b=%0.2f, p=%0.2f", add_p_values_to_lmer(mod_perf_cog1)[2,1], add_p_values_to_lmer(mod_perf_cog1)[2,4])
 g_dev_visuospatial <- dat3 %>%
-    #filter(prior_likelihood_diff_mem > -0.75) %>%
     ggplot(aes(ln_adj_visuospatial_index_sc, dev_full_rms)) +
-    geom_point(size=2) +
-    stat_smooth(method="lm", size=2, color="blue", fill=rgb(0, 0, 1, 0.2)) +
-    annotate(geom="text", x=-0.5, y=0.05, label=lab, color="blue", size=18/.pt) +
-    xlab("Visuospatial Index (reflected, log transformed, z-score)") +
-    ylab("Deviation from Bayesian Optimal") +
+    geom_point(size=3) +
+    stat_smooth(method="lm", size=3, color="gray", fill="gray") +
+    xlab("Visuospatial (transformed, z-score)") +
+    ylab("Deviation from\nBayesian Optimal") +
     theme(text=element_text(size=18),
           strip.background=element_blank(),
           panel.background=element_blank(),
           axis.line=element_line(),
           axis.ticks=element_blank())
-lab = sprintf("b=%0.2f, p=%0.2f", add_p_values_to_lmer(mod_perf_cog2)[2, 1], add_p_values_to_lmer(mod_perf_cog2)[2, 4])
 g_dev_working_memory <- dat3 %>%
-    #filter(prior_likelihood_diff_mem > -0.75) %>%
     ggplot(aes(working_memory_index_sc, dev_full_rms)) +
-    geom_point(size=2) +
-    stat_smooth(method="lm", size=2, color="red", fill=rgb(1, 0, 0, 0.2)) +
-    annotate(geom="text", x=-0.5, y=0.05, label=lab, color="red", size=18/.pt) +
-    xlab("Working memory index (z-score)") +
-    ylab("Deviation from Bayesian Optimal") +
+    geom_point(size=3) +
+    stat_smooth(method="lm", size=3, color="darkmagenta", fill="darkmagenta") +
+    xlab("Working memory (z-score)") +
+    ylab("Deviation from\nBayesian Optimal") +
     theme(text=element_text(size=18),
           strip.background=element_blank(),
           panel.background=element_blank(),
           axis.line=element_line(),
           axis.ticks=element_blank())
-lab = sprintf("b=%0.2f, p=%0.2f", add_p_values_to_lmer(mod_perf_cog3)[2, 1], add_p_values_to_lmer(mod_perf_cog3)[2, 4])
 g_dev_executive_function <- dat3 %>%
-    #filter(prior_likelihood_diff_mem > -0.75) %>%
     ggplot(aes(executive_functioning_index_sc, dev_full_rms)) +
-    geom_point(size=2) +
-    stat_smooth(method="lm", size=2, color="blue", fill=rgb(0, 0, 1, 0.2)) +
-    annotate(geom="text", x=-0.5, y=0.05, label=lab, color="blue", size=18/.pt) +
-    xlab("Executive Function Index (z-score)") +
-    ylab("Deviation from Bayesian Optimal") +
+    geom_point(size=3) +
+    stat_smooth(method="lm", size=3, color="gray", fill="gray") +
+    xlab("Executive function (z-score)") +
+    ylab("Deviation from\nBayesian Optimal") +
     theme(text=element_text(size=18),
           strip.background=element_blank(),
           panel.background=element_blank(),
           axis.line=element_line(),
           axis.ticks=element_blank())
-lab = sprintf("b=%0.2f, p=%0.2f", add_p_values_to_lmer(mod_perf_cog4)[2, 1], add_p_values_to_lmer(mod_perf_cog4)[2, 4])
 g_dev_attention <- dat3 %>%
-    #filter(prior_likelihood_diff_mem > -0.75) %>%
     ggplot(aes(attention_index_sc, dev_full_rms)) +
-    geom_point(size=2) +
-    stat_smooth(method="lm", size=2, color="blue", fill=rgb(0, 0, 1, 0.2)) +
-    annotate(geom="text", x=-0.5, y=0.05, label=lab, color="blue", size=18/.pt) +
-    xlab("Attention Index (z-score)") +
-    ylab("Deviation from Bayesian Optimal") +
+    geom_point(size=3) +
+    stat_smooth(method="lm", size=3, color="gray", fill="gray") +
+    xlab("Attention (z-score)") +
+    ylab("Deviation from\nBayesian Optimal") +
     theme(text=element_text(size=18),
           strip.background=element_blank(),
           panel.background=element_blank(),
@@ -1563,143 +1782,589 @@ grid.arrange(g_dev_visuospatial, g_dev_working_memory, g_dev_executive_function,
 
 
 # Plots for prior strength 
-lab = sprintf("b=%0.2f, p=%0.2f", add_p_values_to_lmer(mod_prior_cognition1)[2,1], add_p_values_to_lmer(mod_prior_cognition1)[2,4])
+## Shared theme (optional, just to avoid repetition)
+base_theme <- theme(
+  text = element_text(size = 18),
+  strip.background = element_blank(),
+  panel.background = element_blank(),
+  axis.line = element_line(),
+  axis.ticks = element_blank()
+)
+# Visuospatial: gray, size 3 
 g_prior_visuospatial <- dat3 %>%
-    #filter(trialnum == 1, POS != 0) %>%
-    ggplot(aes(ln_adj_visuospatial_index_sc, prior_mean1)) +
-    geom_point(size=2) +
-    stat_smooth(method="lm", size=2, color="blue", fill=rgb(0, 0, 1, 0.2)) +
-    annotate(geom="text", x=-0.5, y=0.05, label=lab, color="blue", size=18/.pt) +
-    xlab("Visuospatial Index (reflected, log transformed, z-score)") +
-    ylab("Prior Strength") +
-    theme(text=element_text(size=18),
-          strip.background=element_blank(),
-          panel.background=element_blank(),
-          axis.line=element_line(),
-          axis.ticks=element_blank())
-lab = sprintf("b=%0.2f, p=%0.2f", add_p_values_to_lmer(mod_prior_cognition2)[2, 1], 
-              add_p_values_to_lmer(mod_prior_cognition2)[2, 4])
+  ggplot(aes(ln_adj_visuospatial_index_sc, prior_mean1)) +
+  geom_point(size = 3) +
+  stat_smooth(method = "lm", size = 3,
+              color = "gray", fill = "gray") +
+  xlab("Visuospatial (transformed, z-score)") +
+  ylab("Prior Strength") +
+  base_theme
+# Working memory: gray, size 3
 g_prior_working_memory <- dat3 %>%
-  #filter(trialnum == 1, POS != 0) %>%    
   ggplot(aes(working_memory_index_sc, prior_mean1)) +
-    geom_point(size=2) +
-    stat_smooth(method="lm", size=2, color="blue", fill=rgb(0, 0, 1, 0.2)) +
-    annotate(geom="text", x=-0.5, y=0.05, label=lab, color="blue", size=18/.pt) +
-    xlab("Working memory index (z-score)") +
-    ylab("Prior Strength") +
-    theme(text=element_text(size=18),
-          strip.background=element_blank(),
-          panel.background=element_blank(),
-          axis.line=element_line(),
-          axis.ticks=element_blank())
-lab = sprintf("b=%0.2f, p=%0.2f", add_p_values_to_lmer(mod_prior_cognition3)[2, 1], 
-              add_p_values_to_lmer(mod_prior_cognition3)[2, 4])
+  geom_point(size = 3) +
+  stat_smooth(method = "lm", size = 3,
+              color = "gray", fill = "gray") +
+  xlab("Working memory (z-score)") +
+  ylab("Prior Strength") +
+  base_theme
+# Executive function: gray, size 3 
 g_prior_executive_function <- dat3 %>%
-    #filter(trialnum == 1, POS != 0) %>%    
   ggplot(aes(executive_functioning_index_sc, prior_mean1)) +
-    geom_point(size=2) +
-    stat_smooth(method="lm", size=2, color="blue", fill=rgb(0, 0, 1, 0.2)) +
-    annotate(geom="text", x=-0.5, y=0.05, label=lab, color="blue", size=18/.pt) +
-    xlab("Executive Function Index (z-score)") +
-    ylab("Prior Strength") +
-    theme(text=element_text(size=18),
-          strip.background=element_blank(),
-          panel.background=element_blank(),
-          axis.line=element_line(),
-          axis.ticks=element_blank())
-lab = sprintf("b=%0.2f, p=%0.2f", add_p_values_to_lmer(mod_prior_cognition4)[2, 1], 
-              add_p_values_to_lmer(mod_prior_cognition4)[2, 4])
+  geom_point(size = 3) +
+  stat_smooth(method = "lm", size = 3,
+              color = "gray", fill = "gray") +
+  xlab("Executive function (z-score)") +
+  ylab("Prior Strength") +
+  base_theme
+# Attention: gray, size 3 
 g_prior_attention <- dat3 %>%
-    #filter(trialnum == 1, POS != 0) %>%    
   ggplot(aes(attention_index_sc, prior_mean1)) +
-    geom_point(size=2) +
-    stat_smooth(method="lm", size=2, color="blue", fill=rgb(0, 0, 1, 0.2)) +
-    annotate(geom="text", x=-0.5, y=0.05, label=lab, color="blue", size=18/.pt) +
-    xlab("Attention Index (z-score)") +
-    ylab("Prior Strength") +
-    theme(text=element_text(size=18),
-          strip.background=element_blank(),
-          panel.background=element_blank(),
-          axis.line=element_line(),
-          axis.ticks=element_blank())
-grid.arrange(g_prior_visuospatial, g_prior_working_memory, g_prior_executive_function, g_prior_attention, nrow=2, ncol=2)
-
+  geom_point(size = 3) +
+  stat_smooth(method = "lm", size = 3,
+              color = "gray", fill = "gray") +
+  xlab("Attention (z-score)") +
+  ylab("Prior Strength") +
+  base_theme
+grid.arrange(
+  g_prior_visuospatial,
+  g_prior_working_memory,
+  g_prior_executive_function,
+  g_prior_attention,
+  nrow = 2, ncol = 2
+)
 
 
 # Plots for update strength 
-lab = sprintf("b=%0.2f, p=%0.2f", coef(summary(mod_updateStrengthMEM_cog1))[2, 1], coef(summary(mod_updateStrengthMEM_cog1))[2, 4])
+## Optional: shared theme to avoid repetition
+base_theme <- theme(
+  text = element_text(size = 18),
+  strip.background = element_blank(),
+  panel.background = element_blank(),
+  axis.line = element_line(),
+  axis.ticks = element_blank()
+)
+# Visuospatial (darkmagenta)
 g_prior_likelihood_diff_mem_cog1 <- dat3 %>%
-    filter(prior_likelihood_diff_mem > -0.75) %>%
-    ggplot(aes(ln_adj_visuospatial_index_sc, prior_likelihood_diff_mem)) +
-    geom_point(size=2) +
-    stat_smooth(method="lm", size=2, color="red", fill=rgb(1, 0, 0, 0.2)) +
-    annotate(geom="text", x=-0.5, y=-0.4, label=lab, color="red", size=18/.pt) +
-    xlab("Visuospatial Index (reflected, log transformed, z-score)") +
-    ylab("Update Strength") +
-    theme(text=element_text(size=18),
-          strip.background=element_blank(),
-          panel.background=element_blank(),
-          axis.line=element_line(),
-          axis.ticks=element_blank())
-lab = sprintf("b=%0.2f, p=%0.2f", coef(summary(mod_updateStrengthMEM_cog1a))[2, 1], coef(summary(mod_updateStrengthMEM_cog1a))[2, 4])
+  filter(prior_likelihood_diff_mem > -0.75) %>%
+  ggplot(aes(ln_adj_visuospatial_index_sc, prior_likelihood_diff_mem)) +
+  geom_point(size = 3) +
+  stat_smooth(method = "lm", size = 3,
+              color = "darkmagenta", fill = "darkmagenta") +
+  xlab("Visuospatial (transformed, z-score)") +
+  ylab("Update Strength") +
+  base_theme
 g_prior_likelihood_diff_mem_cog1a <- dat3 %>%
-    filter(prior_likelihood_diff_mem > -0.75) %>%
-    ggplot(aes(visuospatial_index_sc, prior_likelihood_diff_mem)) +
-    geom_point(size=2) +
-    stat_smooth(method="lm", size=2, color="red", fill=rgb(1, 0, 0, 0.2)) +
-    annotate(geom="text", x=-3, y=-0.4, label=lab, color="red", size=18/.pt) +
-    xlab("Visuospatial Index (z-score)") +
-    ylab("Update Strength") +
-    theme(text=element_text(size=18),
-          strip.background=element_blank(),
-          panel.background=element_blank(),
-          axis.line=element_line(),
-          axis.ticks=element_blank())
-lab = sprintf("b=%0.2f, p=%0.2f", coef(summary(mod_updateStrengthMEM_cog2))[2, 1], coef(summary(mod_updateStrengthMEM_cog2))[2, 4])
+  filter(prior_likelihood_diff_mem > -0.75) %>%
+  ggplot(aes(ln_adj_visuospatial_index_sc, prior_likelihood_diff_mem)) +
+  geom_point(size = 3) +
+  stat_smooth(method = "lm", size = 3,
+              color = "darkmagenta", fill = "darkmagenta") +
+  xlab("Visuospatial (transformed, z-score)") +
+  ylab("Update Strength") +
+  base_theme
+# Working memory (gray)
 g_prior_likelihood_diff_mem_cog2 <- dat3 %>%
-    filter(prior_likelihood_diff_mem > -0.75) %>%
-    ggplot(aes(working_memory_index_sc, prior_likelihood_diff_mem)) +
-    geom_point(size=2) +
-    stat_smooth(method="lm", size=2, color="blue", fill=rgb(0, 0, 1, 0.2)) +
-    annotate(geom="text", x=-0.5, y=-0.4, label=lab, color="blue", size=18/.pt) +
-    xlab("Working Memory Index (z-score)") +
-    ylab("Update Strength") +
-    theme(text=element_text(size=18),
-          strip.background=element_blank(),
-          panel.background=element_blank(),
-          axis.line=element_line(),
-          axis.ticks=element_blank())
-lab = sprintf("b=%0.2f, p=%0.2f", coef(summary(mod_updateStrengthMEM_cog3))[2, 1], coef(summary(mod_updateStrengthMEM_cog3))[2, 4])
+  filter(prior_likelihood_diff_mem > -0.75) %>%
+  ggplot(aes(working_memory_index_sc, prior_likelihood_diff_mem)) +
+  geom_point(size = 3) +
+  stat_smooth(method = "lm", size = 3,
+              color = "gray", fill = "gray") +
+  xlab("Working memory (z-score)") +
+  ylab("Update Strength") +
+  base_theme
+# Executive function (gray)
 g_prior_likelihood_diff_mem_cog3 <- dat3 %>%
-    filter(prior_likelihood_diff_mem > -0.75) %>%
-    ggplot(aes(executive_functioning_index_sc, prior_likelihood_diff_mem)) +
-    geom_point(size=2) +
-    stat_smooth(method="lm", size=2, color="blue", fill=rgb(0, 0, 1, 0.2)) +
-    annotate(geom="text", x=-0.5, y=-0.4, label=lab, color="blue", size=18/.pt) +
-    xlab("Executive Function Index (z-score)") +
-    ylab("Update Strength") +
-    theme(text=element_text(size=18),
-          strip.background=element_blank(),
-          panel.background=element_blank(),
-          axis.line=element_line(),
-          axis.ticks=element_blank())
-lab = sprintf("b=%0.2f, p=%0.2f", coef(summary(mod_updateStrengthMEM_cog4))[2, 1], coef(summary(mod_updateStrengthMEM_cog4))[2, 4])
+  filter(prior_likelihood_diff_mem > -0.75) %>%
+  ggplot(aes(executive_functioning_index_sc, prior_likelihood_diff_mem)) +
+  geom_point(size = 3) +
+  stat_smooth(method = "lm", size = 3,
+              color = "gray", fill = "gray") +
+  xlab("Executive function (z-score)") +
+  ylab("Update Strength") +
+  base_theme
+# Attention (gray)
 g_prior_likelihood_diff_mem_cog4 <- dat3 %>%
-    filter(prior_likelihood_diff_mem > -0.75) %>%
-    ggplot(aes(attention_index_sc, prior_likelihood_diff_mem)) +
-    geom_point(size=2) +
-    stat_smooth(method="lm", size=2, color="blue", fill=rgb(0, 0, 1, 0.2)) +
-    annotate(geom="text", x=-0.5, y=-0.4, label=lab, color="blue", size=18/.pt) +
-    xlab("Attention Index (z-score)") +
-    ylab("Update Strength") +
-    theme(text=element_text(size=18),
-          strip.background=element_blank(),
-          panel.background=element_blank(),
-          axis.line=element_line(),
-          axis.ticks=element_blank())
-grid.arrange(g_prior_likelihood_diff_mem_cog1a, g_prior_likelihood_diff_mem_cog2, g_prior_likelihood_diff_mem_cog3, g_prior_likelihood_diff_mem_cog4, nrow=2, ncol=2)
+  filter(prior_likelihood_diff_mem > -0.75) %>%
+  ggplot(aes(attention_index_sc, prior_likelihood_diff_mem)) +
+  geom_point(size = 3) +
+  stat_smooth(method = "lm", size = 3,
+              color = "gray", fill = "gray") +
+  xlab("Attention (z-score)") +
+  ylab("Update Strength") +
+  base_theme
+grid.arrange(
+  g_prior_likelihood_diff_mem_cog1a,
+  g_prior_likelihood_diff_mem_cog2,
+  g_prior_likelihood_diff_mem_cog3,
+  g_prior_likelihood_diff_mem_cog4,
+  nrow = 2, ncol = 2
+)
+
+
+
 
 ``` 
+## Clinical associations to report in paper
+```{r final_clinical_results, include=T}
+
+#Performance MLM
+mod_perf_clinical_pswq_rsq <- dat %>%
+  filter(blocknum %in% blocks, trialnum > 1) %>%
+    mutate_at(c("dev","age","edu","pswq","rsq"), scale) %>%
+    lmer(dev ~ pswq + rsq + age + edu + sex + (1 | subject), .)
+summary(mod_perf_clinical_pswq_rsq)
+
+mod_perf_clinical_pswq <- dat %>%
+  filter(blocknum %in% blocks, trialnum > 1) %>%
+    mutate_at(c("dev","age","edu","pswq"), scale) %>%
+    lmer(dev ~ pswq + age + edu + sex + (1 | subject), .)
+summary(mod_perf_clinical_pswq)
+mod_perf_clinical_pswq0 <- dat %>%
+  filter(blocknum %in% blocks, trialnum > 1) %>%
+    mutate_at(c("dev","pswq"), scale) %>%
+    lmer(dev ~ pswq + (1 | subject), .)
+summary(mod_perf_clinical_pswq0)
+mod_perf_clinical_rsq <- dat %>%
+  filter(blocknum %in% blocks, trialnum > 1) %>%
+    mutate_at(c("dev","age","edu","rsq"), scale) %>%
+    lmer(dev ~ rsq + age + edu + sex + (1 | subject), .)
+summary(mod_perf_clinical_rsq)
+mod_perf_clinical_rsq0 <- dat %>%
+  filter(blocknum %in% blocks, trialnum > 1) %>%
+    mutate_at(c("dev","rsq"), scale) %>%
+    lmer(dev ~ rsq + (1 | subject), .)
+summary(mod_perf_clinical_rsq0)
+#anxiety
+mod_perf_clinical_hars <- dat %>%
+  filter(blocknum %in% blocks, trialnum > 1) %>%
+    mutate_at(c("dev","age","edu","hars"), scale) %>%
+    lmer(dev ~ hars + age + edu + sex + (1 | subject), .)
+summary(mod_perf_clinical_hars)
+mod_perf_clinical_hars0 <- dat %>%
+  filter(blocknum %in% blocks, trialnum > 1) %>%
+    mutate_at(c("dev","hars"), scale) %>%
+    lmer(dev ~ hars + (1 | subject), .)
+summary(mod_perf_clinical_hars0)
+#depression
+mod_perf_clinical_hamd <- dat %>%
+  filter(blocknum %in% blocks, trialnum > 1) %>%
+    mutate_at(c("dev","age","edu","hamd"), scale) %>%
+    lmer(dev ~ hamd + age + edu + sex + (1 | subject), .)
+summary(mod_perf_clinical_hamd)
+mod_perf_clinical_hamd0 <- dat %>%
+  filter(blocknum %in% blocks, trialnum > 1) %>%
+    mutate_at(c("dev","hamd"), scale) %>%
+    lmer(dev ~ hamd + (1 | subject), .)
+summary(mod_perf_clinical_hamd0)
+
+
+#prior weight MLM
+mod_prior_clinical_pswq_rsq <- dat %>%
+    filter(trialnum == 1, POS != 0) %>%
+    mutate_at(c("prior_strength","age","edu","pswq","rsq"), scale) %>%
+    lmer(prior_strength ~ pswq + rsq + age + edu + sex + (1 | subject), .)
+summary(mod_prior_clinical_pswq_rsq)
+
+mod_prior_clinical_pswq <- dat %>%
+    filter(trialnum == 1, POS != 0) %>%
+    mutate_at(c("prior_strength","age","edu","pswq"), scale) %>%
+    lmer(prior_strength ~ pswq + age + edu + sex + (1 | subject), .)
+summary(mod_prior_clinical_pswq)
+mod_prior_clinical_pswq0 <- dat %>%
+    filter(trialnum == 1, POS != 0) %>%
+    mutate_at(c("prior_strength","pswq"), scale) %>%
+    lmer(prior_strength ~ pswq + (1 | subject), .)
+summary(mod_prior_clinical_pswq0)
+mod_prior_clinical_rsq <- dat %>%
+    filter(trialnum == 1, POS != 0) %>%
+    mutate_at(c("prior_strength","age","edu","rsq"), scale) %>%
+    lmer(prior_strength ~ rsq + age + edu + sex + (1 | subject), .)
+summary(mod_prior_clinical_rsq)
+mod_prior_clinical_rsq0 <- dat %>%
+    filter(trialnum == 1, POS != 0) %>%
+    mutate_at(c("prior_strength","rsq"), scale) %>%
+    lmer(prior_strength ~ rsq + (1 | subject), .)
+summary(mod_prior_clinical_rsq0)
+#anxiety
+mod_prior_clinical_hars <- dat %>%
+    filter(trialnum == 1, POS != 0) %>%
+    mutate_at(c("prior_strength","age","edu","hars"), scale) %>%
+    lmer(prior_strength ~ hars + age + edu + sex + (1 | subject), .)
+summary(mod_prior_clinical_hars)
+mod_prior_clinical_hars0 <- dat %>%
+    filter(trialnum == 1, POS != 0) %>%
+    mutate_at(c("prior_strength","hars"), scale) %>%
+    lmer(prior_strength ~ hars + (1 | subject), .)
+summary(mod_prior_clinical_hars0)
+#depression
+mod_prior_clinical_hamd <- dat %>%
+    filter(trialnum == 1, POS != 0) %>%
+    mutate_at(c("prior_strength","age","edu","hamd"), scale) %>%
+    lmer(prior_strength ~ hamd + age + edu + sex + (1 | subject), .)
+summary(mod_prior_clinical_hamd)
+mod_prior_clinical_hamd0 <- dat %>%
+    filter(trialnum == 1, POS != 0) %>%
+    mutate_at(c("prior_strength","hamd"), scale) %>%
+    lmer(prior_strength ~ hamd + (1 | subject), .)
+summary(mod_prior_clinical_hamd0)
+
+#update strength linear regression
+mod_updateStrengthMEM_pswq_rsq <- dat3 %>%
+    filter(prior_likelihood_diff_mem > -0.75) %>%
+    mutate_at(c("prior_likelihood_diff_mem","age","edu","pswq","rsq"), scale) %>%
+    lm(prior_likelihood_diff_mem ~ pswq + rsq + age + edu + sex, .)
+summary(mod_updateStrengthMEM_pswq_rsq)
+
+mod_updateStrengthMEM_pswq <- dat3 %>%
+    filter(prior_likelihood_diff_mem > -0.75) %>%
+    mutate_at(c("prior_likelihood_diff_mem","age","edu","pswq"), scale) %>%
+    lm(prior_likelihood_diff_mem ~ pswq + age + edu + sex, .)
+summary(mod_updateStrengthMEM_pswq)
+mod_updateStrengthMEM_pswq0 <- dat3 %>%
+    filter(prior_likelihood_diff_mem > -0.75) %>%
+    mutate_at(c("prior_likelihood_diff_mem","pswq"), scale) %>%
+    lm(prior_likelihood_diff_mem ~ pswq, .)
+summary(mod_updateStrengthMEM_pswq0)
+mod_updateStrengthMEM_rsq <- dat3 %>%
+    filter(prior_likelihood_diff_mem > -0.75) %>%
+    mutate_at(c("prior_likelihood_diff_mem","age","edu","rsq"), scale) %>%
+    lm(prior_likelihood_diff_mem ~ rsq + age + edu + sex, .)
+summary(mod_updateStrengthMEM_rsq)
+mod_updateStrengthMEM_rsq0 <- dat3 %>%
+    filter(prior_likelihood_diff_mem > -0.75) %>%
+    mutate_at(c("prior_likelihood_diff_mem","rsq"), scale) %>%
+    lm(prior_likelihood_diff_mem ~ rsq, .)
+summary(mod_updateStrengthMEM_rsq0)
+#anxiety
+mod_updateStrengthMEM_hars <- dat3 %>%
+    filter(prior_likelihood_diff_mem > -0.75) %>%
+    mutate_at(c("prior_likelihood_diff_mem","age","edu","hars"), scale) %>%
+    lm(prior_likelihood_diff_mem ~ hars + age + edu + sex, .)
+summary(mod_updateStrengthMEM_hars)
+mod_updateStrengthMEM_hars0 <- dat3 %>%
+    filter(prior_likelihood_diff_mem > -0.75) %>%
+    mutate_at(c("prior_likelihood_diff_mem","hars"), scale) %>%
+    lm(prior_likelihood_diff_mem ~ hars, .)
+summary(mod_updateStrengthMEM_hars0)
+#depression
+mod_updateStrengthMEM_hamd <- dat3 %>%
+    filter(prior_likelihood_diff_mem > -0.75) %>%
+    mutate_at(c("prior_likelihood_diff_mem","age","edu","hamd"), scale) %>%
+    lm(prior_likelihood_diff_mem ~ hamd + age + edu + sex, .)
+summary(mod_updateStrengthMEM_hamd)
+mod_updateStrengthMEM_hamd0 <- dat3 %>%
+    filter(prior_likelihood_diff_mem > -0.75) %>%
+    mutate_at(c("prior_likelihood_diff_mem","hamd"), scale) %>%
+    lm(prior_likelihood_diff_mem ~ hamd, .)
+summary(mod_updateStrengthMEM_hamd0)
+
+
+
+## Final plots for paper
+
+# Performance 
+## --- Ensure scaled dev variable for plotting --- ##
+if (!"dev_sc" %in% names(dat3)) {
+  dat3$dev_sc <- scale(dat3$dev_full_rms)
+}
+## =========================
+## PSWQ effect (from mod_perf_clinical_pswq_rsq)
+## =========================
+# marginal effect of pswq (scaled in model), on dev
+eff_pswq_dev <- ggpredict(mod_perf_clinical_pswq_rsq, terms = "pswq")
+# back-transform pswq to raw units
+pswq_mean <- mean(dat$pswq, na.rm = TRUE)
+pswq_sd   <- sd(dat$pswq, na.rm = TRUE)
+eff_pswq_dev$pswq_raw <- eff_pswq_dev$x * pswq_sd + pswq_mean
+g_dev_pswq <- ggplot(eff_pswq_dev, aes(x = pswq_raw, y = predicted)) +
+  # raw data points: actual dev (scaled) vs raw pswq
+  geom_point(
+    data = dat3,
+    aes(x = pswq, y = dev_sc),
+    size = 3,
+    color = "black"
+  ) +
+  geom_line(size = 3, color = "gray") +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high),
+              alpha = 0.4,
+              fill  = "gray") +
+  labs(
+    x = "Worry (PSWQ)",
+    y = "Deviation from\nBayesian Optimal (a.u.)"
+  ) +
+  theme(
+    text            = element_text(size = 18),
+    strip.background= element_blank(),
+    panel.background= element_blank(),
+    axis.line       = element_line(),
+    axis.ticks      = element_blank()
+  )
+## =========================
+## RSQ effect (from same model)
+## =========================
+eff_rsq_dev <- ggpredict(mod_perf_clinical_pswq_rsq, terms = "rsq")
+rsq_mean <- mean(dat$rsq, na.rm = TRUE)
+rsq_sd   <- sd(dat$rsq, na.rm = TRUE)
+eff_rsq_dev$rsq_raw <- eff_rsq_dev$x * rsq_sd + rsq_mean
+g_dev_rsq <- ggplot(eff_rsq_dev, aes(x = rsq_raw, y = predicted)) +
+  geom_point(
+    data = dat3,
+    aes(x = rsq, y = dev_sc),
+    size = 3,
+    color = "black"
+  ) +
+  geom_line(size = 3, color = "gray") +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high),
+              alpha = 0.4,
+              fill  = "gray") +
+  labs(
+    x = "Rumination (RSQ)",
+    y = "Deviation from\nBayesian Optimal (a.u.)"
+  ) +
+  theme(
+    text            = element_text(size = 18),
+    strip.background= element_blank(),
+    panel.background= element_blank(),
+    axis.line       = element_line(),
+    axis.ticks      = element_blank()
+  )
+#hars
+eff_hars <- ggpredict(mod_dev_abs_hars, terms = "hars")
+hars_mean <- mean(dat$hars, na.rm=TRUE)
+hars_sd <- sd(dat$hars, na.rm=TRUE)
+eff_hars <- ggpredict(mod_dev_abs_hars, terms = "hars")
+eff_hars$hars_raw <- eff_hars$x * hars_sd + hars_mean
+g_dev_hars <- ggplot(eff_hars, aes(x = hars_raw, y = predicted)) +
+  #add raw data points (actual observed values) on top of model-based prediction lines
+  geom_point(
+    data = dat3,
+    aes(x = hars, y = dev_sc),
+    size = 3, color = "black"
+  ) +
+  geom_line(size=3, color="gray") +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high), alpha=0.4,
+              fill="gray") +
+  labs(
+    x = "Anxiety (HARS)",
+    y = "Deviation from\nBayesian Optimal (a.u.)"
+  ) +
+  theme(text=element_text(size=18),
+          strip.background=element_blank(),
+          panel.background=element_blank(),
+          axis.line=element_line(),
+          axis.ticks=element_blank())
+#hamd
+eff_hamd <- ggpredict(mod_dev_abs_hamd, terms = "hamd")
+hamd_mean <- mean(dat$hamd, na.rm=TRUE)
+hamd_sd <- sd(dat$hamd, na.rm=TRUE)
+eff_hamd <- ggpredict(mod_dev_abs_hamd, terms = "hamd")
+eff_hamd$hamd_raw <- eff_hamd$x * hamd_sd + hamd_mean
+g_dev_hamd <- ggplot(eff_hamd, aes(x = hamd_raw, y = predicted)) +
+  #add raw data points (actual observed values) on top of model-based prediction lines
+  geom_point(
+    data = dat3,
+    aes(x = hamd, y = dev_sc),
+    size = 3, color = "black"
+  ) +
+  geom_line(size=3, color="gray") +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high), alpha=0.4,
+              fill="gray") +
+  labs(
+    x = "Depression (HAMD)",
+    y = "Deviation from\nBayesian Optimal (a.u.)"
+  ) +
+  theme(text=element_text(size=18),
+          strip.background=element_blank(),
+          panel.background=element_blank(),
+          axis.line=element_line(),
+          axis.ticks=element_blank())
+## Arrange 
+grid.arrange(g_dev_pswq, g_dev_rsq, g_dev_hars, g_dev_hamd, nrow = 2, ncol = 2)
+
+# Prior weight
+#pswq
+eff_pswq <- ggpredict(mod_prior_clinical_pswq_rsq, terms = "pswq")
+pswq_mean <- mean(dat$pswq, na.rm=TRUE)
+pswq_sd <- sd(dat$pswq, na.rm=TRUE)
+eff_pswq <- ggpredict(mod_prior_clinical_pswq_rsq, terms = "pswq")
+eff_pswq$pswq_raw <- eff_pswq$x * pswq_sd + pswq_mean
+if (!"prior_mean1_sc" %in% names(dat3)) {
+  dat3$prior_mean1_sc <- scale(dat3$prior_mean1)
+}
+g_prior_pswq <- ggplot(eff_pswq, aes(x = pswq_raw, y = predicted)) +
+  #add raw data points (actual observed values) on top of model-based prediction lines
+  geom_point(
+    data = dat3,
+    aes(x = pswq, y = prior_mean1_sc),
+    size = 3, color = "black"
+  ) +
+  geom_line(size=3, color="darkmagenta") +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high), alpha=0.4,
+              fill="darkmagenta") + 
+  labs(
+    x = "Worry (PSWQ)",
+    y = "Prior Weight (a.u.)"
+  ) +
+  theme(text=element_text(size=18),
+          strip.background=element_blank(),
+          panel.background=element_blank(),
+          axis.line=element_line(),
+          axis.ticks=element_blank())
+#rsq
+eff_rsq <- ggpredict(mod_prior_clinical_pswq_rsq, terms = "rsq")
+rsq_mean <- mean(dat$rsq, na.rm=TRUE)
+rsq_sd <- sd(dat$rsq, na.rm=TRUE)
+eff_rsq <- ggpredict(mod_prior_clinical_pswq_rsq, terms = "rsq")
+eff_rsq$rsq_raw <- eff_rsq$x * rsq_sd + rsq_mean
+if (!"prior_mean1_sc" %in% names(dat3)) {
+  dat3$prior_mean1_sc <- scale(dat3$prior_mean1)
+}
+g_prior_rsq <- ggplot(eff_rsq, aes(x = rsq_raw, y = predicted)) +
+  #add raw data points (actual observed values) on top of model-based prediction lines
+  geom_point(
+    data = dat3,
+    aes(x = rsq, y = prior_mean1_sc),
+    size = 3, color = "black"
+  ) +
+  geom_line(size=3, color="gray") +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high), alpha=0.4,
+              fill="gray") +
+  labs(
+    x = "Rumination (RSQ)",
+    y = "Prior Weight (a.u.)"
+  ) +
+  theme(text=element_text(size=18),
+          strip.background=element_blank(),
+          panel.background=element_blank(),
+          axis.line=element_line(),
+          axis.ticks=element_blank())
+#hars
+eff_hars <- ggpredict(mod_prior_clinical_hars, terms = "hars")
+hars_mean <- mean(dat$hars, na.rm=TRUE)
+hars_sd <- sd(dat$hars, na.rm=TRUE)
+eff_hars <- ggpredict(mod_prior_clinical_hars, terms = "hars")
+eff_hars$hars_raw <- eff_hars$x * hars_sd + hars_mean
+if (!"prior_mean1_sc" %in% names(dat3)) {
+  dat3$prior_mean1_sc <- scale(dat3$prior_mean1)
+}
+g_prior_hars <- ggplot(eff_hars, aes(x = hars_raw, y = predicted)) +
+  #add raw data points (actual observed values) on top of model-based prediction lines
+  geom_point(
+    data = dat3,
+    aes(x = hars, y = prior_mean1_sc),
+    size = 3, color = "black"
+  ) +
+  geom_line(size=3, color="gray") +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high), alpha=0.4,
+              fill="gray") +
+  labs(
+    x = "Anxiety (HARS)",
+    y = "Prior Weight (a.u.)"
+  ) +
+  theme(text=element_text(size=18),
+          strip.background=element_blank(),
+          panel.background=element_blank(),
+          axis.line=element_line(),
+          axis.ticks=element_blank())
+#hamd
+eff_hamd <- ggpredict(mod_prior_clinical_hamd, terms = "hamd")
+hamd_mean <- mean(dat$hamd, na.rm=TRUE)
+hamd_sd <- sd(dat$hamd, na.rm=TRUE)
+eff_hamd <- ggpredict(mod_prior_clinical_hamd, terms = "hamd")
+eff_hamd$hamd_raw <- eff_hamd$x * hamd_sd + hamd_mean
+if (!"prior_mean1_sc" %in% names(dat3)) {
+  dat3$prior_mean1_sc <- scale(dat3$prior_mean1)
+}
+g_prior_hamd <- ggplot(eff_hamd, aes(x = hamd_raw, y = predicted)) +
+  #add raw data points (actual observed values) on top of model-based prediction lines
+  geom_point(
+    data = dat3,
+    aes(x = hamd, y = prior_mean1_sc),
+    size = 3, color = "black"
+  ) +
+  geom_line(size=3, color="gray") +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high), alpha=0.4,
+              fill="gray") +
+  labs(
+    x = "Depression (HAMD)",
+    y = "Prior Weight (a.u.)"
+  ) +
+  theme(text=element_text(size=18),
+          strip.background=element_blank(),
+          panel.background=element_blank(),
+          axis.line=element_line(),
+          axis.ticks=element_blank())
+grid.arrange(g_prior_pswq, g_prior_rsq, 
+             g_prior_hars, g_prior_hamd,
+             nrow=2, ncol=2)
+
+
+# Update strength
+lab = sprintf("b=%0.2f, p=%0.2f", coef(summary(mod_updateStrengthMEM_pswq_rsq))[2, 1], coef(summary(mod_updateStrengthMEM_pswq_rsq))[2, 4])
+g_prior_likelihood_diff_mem_pswq <- dat3 %>%
+    filter(prior_likelihood_diff_mem > -0.75) %>%
+    ggplot(aes(pswq, prior_likelihood_diff_mem)) +
+    geom_point(size=3) +
+    stat_smooth(method="lm", size=3, color="gray", fill="gray") +
+    #annotate(geom="text", x=70, y=-0.4, label=lab, color="gray", size=18/.pt) +
+    xlab("Worry (PSWQ)") +
+    ylab("Update Strength") +
+    theme(text=element_text(size=18),
+          strip.background=element_blank(),
+          panel.background=element_blank(),
+          axis.line=element_line(),
+          axis.ticks=element_blank())
+lab = sprintf("b=%0.2f, p=%0.2f", coef(summary(mod_updateStrengthMEM_pswq_rsq))[3, 1], coef(summary(mod_updateStrengthMEM_pswq_rsq))[3, 4])
+g_prior_likelihood_diff_mem_rsq <- dat3 %>%
+    filter(prior_likelihood_diff_mem > -0.75) %>%
+    ggplot(aes(rsq, prior_likelihood_diff_mem)) +
+    geom_point(size=3) +
+    stat_smooth(method="lm", size=3, color="darkmagenta", fill="darkmagenta") +
+    #annotate(geom="text", x=65, y=-0.4, label=lab, color="darkmagenta", size=18/.pt) +
+    xlab("Rumination (RSQ)") +
+    ylab("Update Strength") +
+    theme(text=element_text(size=18),
+          strip.background=element_blank(),
+          panel.background=element_blank(),
+          axis.line=element_line(),
+          axis.ticks=element_blank())
+lab = sprintf("b=%0.2f, p=%0.2f", coef(summary(mod_updateStrengthMEM_hars))[2, 1], coef(summary(mod_updateStrengthMEM_hars))[2, 4])
+g_prior_likelihood_diff_mem_hars <- dat3 %>%
+    filter(prior_likelihood_diff_mem > -0.75) %>%
+    ggplot(aes(hars, prior_likelihood_diff_mem)) +
+    geom_point(size=3) +
+    stat_smooth(method="lm", size=3, color="gray", fill="gray") +
+    #annotate(geom="text", x=30, y=-0.2, label=lab, color="gray", size=18/.pt) +
+    xlab("Anxiety (HARS)") +
+    ylab("Update Strength") +
+    theme(text=element_text(size=18),
+          strip.background=element_blank(),
+          panel.background=element_blank(),
+          axis.line=element_line(),
+          axis.ticks=element_blank())
+lab = sprintf("b=%0.2f, p=%0.2f", coef(summary(mod_updateStrengthMEM_hamd))[2, 1], coef(summary(mod_updateStrengthMEM_hamd))[2, 4])
+g_prior_likelihood_diff_mem_hamd <- dat3 %>%
+    filter(prior_likelihood_diff_mem > -0.75) %>%
+    ggplot(aes(hamd, prior_likelihood_diff_mem)) +
+    geom_point(size=3) +
+    stat_smooth(method="lm", size=3, color="gray", fill="gray") +
+    #annotate(geom="text", x=17, y=0.7, label=lab, color="gray", size=18/.pt) +
+    xlab("Depression (HAMD)") +
+    ylab("Update Strength") +
+    theme(text=element_text(size=18),
+          strip.background=element_blank(),
+          panel.background=element_blank(),
+          axis.line=element_line(),
+          axis.ticks=element_blank())
+
+grid.arrange(g_prior_likelihood_diff_mem_pswq, g_prior_likelihood_diff_mem_rsq, 
+             g_prior_likelihood_diff_mem_hars, g_prior_likelihood_diff_mem_hamd,
+             nrow=2, ncol=2)
+
+
+```
+
 ## Cognition-Clinical Interactions
 ```{r cognition_clinical_interactions, include=T}
 
@@ -1910,13 +2575,17 @@ dat <- dat %>%
   mutate(rsq_sc = scale(rsq),
          pswq_sc = scale(pswq),
          age_sc = scale(age),
-         edu_sc = scale(edu))
+         edu_sc = scale(edu),
+         hars_sc = scale(hars),
+         hamd_sc = scale(hamd))
 
 dat3 <- dat3 %>%
   mutate(rsq_sc = scale(rsq),
          pswq_sc = scale(pswq),
          age_sc = scale(age),
-         edu_sc = scale(edu))
+         edu_sc = scale(edu),
+         hars_sc = scale(hars),
+         hamd_sc = scale(hamd))
 
 # Functions to create formula for each variable
 dev_formula_fn <- function(varname) {
@@ -2449,7 +3118,7 @@ p100 <- interact_plot(
   legend.main = "Figure copy\n(scaled)") +
   labs(
     x = "Worry (scaled)",
-    y = "Performance\n(deviation from optimal)",
+    y = "Deviation from\nBayesian Optimal (a.u.)",
     title = "Interaction of figure copy and\nworry to predict performance"
   ) +
   theme_bw() +
@@ -2463,6 +3132,50 @@ p100 <- interact_plot(
     legend.text  = element_text(size = 14),
     panel.grid = element_blank()
   )
+##Transform the plot so worry is not scaled
+## 1) Marginal effects: pswq_sc on x, lines for mfigcopy_sc at -1 and +1 SD
+eff <- ggpredict(
+  mfig_pswq_dev_model,
+  terms = c("pswq_sc", "mfigcopy_sc [-1, 1]")
+)
+# Replace `dat` with the data frame that has pswq and pswq_sc (e.g., dat3)
+pswq_mean <- mean(dat$pswq, na.rm = TRUE)
+pswq_sd   <- sd(dat$pswq, na.rm = TRUE)
+# Back-transform: raw = scaled * SD + mean
+eff$pswq_raw <- eff$x * pswq_sd + pswq_mean
+p100 <- ggplot(eff, aes(x = pswq_raw, y = predicted,
+                        color = group, fill = group)) +
+  geom_line(linewidth = 2) +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high),
+              alpha = 0.15,
+              linewidth = 0,
+              show.legend = FALSE) +
+  scale_color_manual(
+    values = c("#FF8C00", "#000080"),
+    name   = "Figure copy\n(scaled)"
+  ) +
+  scale_fill_manual(
+    values = c("#FF8C00", "#000080"),
+    guide  = "none"
+  ) +
+  labs(
+    x = "Worry (PSWQ)",
+    y = "Deviation from\nBayesian Optimal (a.u.)",
+    title = "Interaction of figure copy and\nworry to predict performance"
+  ) +
+  theme_bw() +
+  theme(
+    plot.title  = element_text(size = 20, face = "bold", hjust = 0.5),
+    axis.title.x = element_text(size = 18, face = "bold"),
+    axis.title.y = element_text(size = 18, face = "bold"),
+    axis.text.x  = element_text(size = 16, hjust = 0.5),
+    axis.text.y  = element_text(size = 16),
+    legend.title = element_text(size = 16),
+    legend.text  = element_text(size = 14),
+    panel.grid   = element_blank()
+  )
+p100
+
 
 p101 <- interact_plot(
   mfig_pswq_prior_model,
@@ -2492,6 +3205,48 @@ p101 <- interact_plot(
     legend.text  = element_text(size = 14),
     panel.grid = element_blank()
   )
+##Transform the plot so worry is not scaled
+## Marginal effects for pswq_sc × mfigcopy_sc in the PRIOR model
+eff_prior <- ggpredict(
+  mfig_pswq_prior_model,
+  terms = c("pswq_sc", "mfigcopy_sc [-1, 1]")
+)
+## Back-transform scaled pswq_sc to raw PSWQ
+eff_prior$pswq_raw <- eff_prior$x * pswq_sd + pswq_mean
+## Rebuild p101 with raw PSWQ on the x-axis
+p101 <- ggplot(eff_prior, aes(x = pswq_raw, y = predicted,
+                              color = group, fill = group)) +
+  geom_line(linewidth = 2) +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high),
+              alpha = 0.15,
+              linewidth = 0,
+              show.legend = FALSE) +
+  scale_color_manual(
+    values = c("#FF8C00", "#000080"),
+    name   = "Figure copy\n(scaled)"
+  ) +
+  scale_fill_manual(
+    values = c("#FF8C00", "#000080"),
+    guide  = "none"
+  ) +
+  labs(
+    x = "Worry (PSWQ)",
+    y = "Weight on prior",
+    title = "Interaction of figure copy and\nworry to predict weight on prior"
+  ) +
+  theme_bw() +
+  theme(
+    plot.title  = element_text(size = 20, face = "bold", hjust = 0.5),
+    axis.title.x = element_text(size = 18, face = "bold"),
+    axis.title.y = element_text(size = 18, face = "bold"),
+    axis.text.x  = element_text(size = 16, hjust = 0.5),
+    axis.text.y  = element_text(size = 16),
+    legend.title = element_text(size = 16),
+    legend.text  = element_text(size = 14),
+    panel.grid   = element_blank()
+  )
+p101
+
 
 p102 <- interact_plot(
   storytotal_pswq_prior_model,
@@ -2521,6 +3276,55 @@ p102 <- interact_plot(
     legend.text  = element_text(size = 14),
     panel.grid = element_blank()
   )
+#Transform data to unscaled version
+## Assuming you've already defined these earlier:
+## pswq_mean <- mean(dat$pswq, na.rm = TRUE)
+## pswq_sd   <- sd(dat$pswq, na.rm = TRUE)
+
+# 1) Marginal effects for pswq_sc × storytotal_sc in the PRIOR model
+eff_story <- ggpredict(
+  storytotal_pswq_prior_model,
+  terms = c("pswq_sc", "storytotal_sc [-1, 1]")
+)
+
+# 2) Back-transform scaled pswq_sc to raw PSWQ
+eff_story$pswq_raw <- eff_story$x * pswq_sd + pswq_mean
+
+# 3) Rebuild p102 with raw PSWQ on x-axis
+p102 <- ggplot(eff_story, aes(x = pswq_raw, y = predicted,
+                              color = group, fill = group)) +
+  geom_line(linewidth = 2) +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high),
+              alpha = 0.15,
+              linewidth = 0,
+              show.legend = FALSE) +
+  scale_color_manual(
+    values = c("#FF8C00", "#000080"),
+    name   = "Story total\n(scaled)"
+  ) +
+  scale_fill_manual(
+    values = c("#FF8C00", "#000080"),
+    guide  = "none"
+  ) +
+  labs(
+    x = "Worry (PSWQ)",
+    y = "Weight on prior",
+    title = "Interaction of story total and\nworry to predict weight on prior"
+  ) +
+  theme_bw() +
+  theme(
+    plot.title  = element_text(size = 20, face = "bold", hjust = 0.5),
+    axis.title.x = element_text(size = 18, face = "bold"),
+    axis.title.y = element_text(size = 18, face = "bold"),
+    axis.text.x  = element_text(size = 16, hjust = 0.5),
+    axis.text.y  = element_text(size = 16),
+    legend.title = element_text(size = 16),
+    legend.text  = element_text(size = 14),
+    panel.grid   = element_blank()
+  )
+p102
+
+
 
 p103 <- interact_plot(
   coding_rsq_dev_model,
@@ -2551,6 +3355,49 @@ p103 <- interact_plot(
     legend.text  = element_text(size = 14),
     panel.grid = element_blank()
   )
-
+# Transform data
+## 1) Marginal effects for rsq_sc × coding_sc in the dev model
+eff_rsq <- ggpredict(
+  coding_rsq_dev_model,
+  terms = c("rsq_sc", "coding_sc [-1, 1]")
+)
+## 2) Get mean and SD of *raw* RSQ (replace `dat` with your actual data frame)
+rsq_mean <- mean(dat$rsq, na.rm = TRUE)
+rsq_sd   <- sd(dat$rsq, na.rm = TRUE)
+## 3) Back-transform: raw = scaled * SD + mean
+eff_rsq$rsq_raw <- eff_rsq$x * rsq_sd + rsq_mean
+## 4) Rebuild p103 with raw RSQ on x-axis
+p103 <- ggplot(eff_rsq, aes(x = rsq_raw, y = predicted,
+                            color = group, fill = group)) +
+  geom_line(linewidth = 2) +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high),
+              alpha = 0.15,
+              linewidth = 0,
+              show.legend = FALSE) +
+  scale_color_manual(
+    values = c("#FF8C00", "#000080"),
+    name   = "Coding (scaled)"
+  ) +
+  scale_fill_manual(
+    values = c("#FF8C00", "#000080"),
+    guide  = "none"
+  ) +
+  labs(
+    x = "Rumination (RSQ)",
+    y = "Performance\n(deviation from optimal)",
+    title = "Interaction of coding and\nrumination to predict performance"
+  ) +
+  theme_bw() +
+  theme(
+    plot.title  = element_text(size = 20, face = "bold", hjust = 0.5),
+    axis.title.x = element_text(size = 18, face = "bold"),
+    axis.title.y = element_text(size = 18, face = "bold"),
+    axis.text.x  = element_text(size = 16, hjust = 0.5),
+    axis.text.y  = element_text(size = 16),
+    legend.title = element_text(size = 16),
+    legend.text  = element_text(size = 14),
+    panel.grid   = element_blank()
+  )
+p103
 
 ```
