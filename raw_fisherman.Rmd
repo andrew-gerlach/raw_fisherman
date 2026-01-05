@@ -1,8 +1,10 @@
 ---
 title: "RAW Fisherman Task"
-author: "Andrew Gerlach"
-date: "2025-01-30"
-output: html_document
+author: "Andrew Gerlach, Angela Ianni"
+date: "created: 2025-01-30; most recent update: 2026-01-05"
+output:
+  html_document:
+    toc: true
 ---
 
 # Setup
@@ -1385,14 +1387,15 @@ if (!("visuospatial_index" %in% colnames(dat))) {
 
 # Test broadly for correlations
 dat_age_prior <- dat %>% select(subject,age,edu) %>% unique() #don't think we can use prior strength here
-dat3_cog_all <- dat3 %>%
+dat3 <- dat3 %>%
   mutate(edu_sc = scale(edu),
          age_sc = scale(age),
          pswq_sc = scale(pswq),
          rsq_sc = scale(rsq),
          dev_sc = scale(dev_full_rms), # subject level deviation from the bayesian model (measure of performance)
          prior_strength_sc = scale(prior_mean1), #in mixed effects use prior_strength when POS not equal to zero
-         prior_likelihood_diff_mem_sc = scale(prior_likelihood_diff_mem)) %>% 
+         prior_likelihood_diff_mem_sc = scale(prior_likelihood_diff_mem))
+dat3_cog_all <- dat3 %>%
   select(age_sc, edu_sc, pswq_sc, rsq_sc, dev_sc, 
          prior_strength_sc, prior_likelihood_diff_mem_sc, 
          vcis_sc, line_sc, mfigcopy_sc, visuospatial_index, visuospatial_index_sc, ln_adj_visuospatial_index_sc,
@@ -1540,6 +1543,13 @@ mod_prior_cognition <- dat %>%
            executive_functioning_index_sc + attention_index_sc + age + edu + sex + (1 | subject), .)
 summary(mod_prior_cognition)
 
+mod_prior_cognition_clinical <- dat %>%
+    filter(trialnum == 1, POS != 0) %>%
+    mutate_at(c("prior_strength","age","edu","pswq","rsq"), scale) %>%
+    lmer(prior_strength ~ ln_adj_visuospatial_index_sc + working_memory_index_sc + 
+           executive_functioning_index_sc + attention_index_sc + age + edu + sex + pswq + rsq + (1 | subject), .)
+summary(mod_prior_cognition_clinical)
+
 mod_prior_cognition1 <- dat %>%
     filter(trialnum == 1, POS != 0) %>%
     mutate_at(c("prior_strength","age","edu"), scale) %>%
@@ -1568,6 +1578,21 @@ mod_updateStrengthMEM_cog <- dat3 %>%
     lm(prior_likelihood_diff_mem ~ ln_adj_visuospatial_index_sc + working_memory_index_sc +
          executive_functioning_index_sc + attention_index_sc + age + edu + sex, .)
 summary(mod_updateStrengthMEM_cog)
+
+#worry/rumination finding controlling for all cognitive factors
+mod_updateStrengthMEM_cog_clinical <- dat3 %>%
+    filter(prior_likelihood_diff_mem > -0.75) %>%
+    mutate_at(c("prior_likelihood_diff_mem","age","edu","pswq","rsq"), scale) %>%
+    lm(prior_likelihood_diff_mem ~ ln_adj_visuospatial_index_sc + working_memory_index_sc +
+         executive_functioning_index_sc + attention_index_sc + age + edu + sex + pswq + rsq, .)
+summary(mod_updateStrengthMEM_cog_clinical)
+
+#worry/rumination finding controlling for visuospatial only
+mod_updateStrengthMEM_visuospatial_clinical <- dat3 %>%
+    filter(prior_likelihood_diff_mem > -0.75) %>%
+    mutate_at(c("prior_likelihood_diff_mem","age","edu","pswq","rsq"), scale) %>%
+    lm(prior_likelihood_diff_mem ~ ln_adj_visuospatial_index_sc + age + edu + sex + pswq + rsq, .)
+summary(mod_updateStrengthMEM_visuospatial_clinical)
 
 mod_updateStrengthMEM_cog1 <- dat3 %>%
     filter(prior_likelihood_diff_mem > -0.75) %>%
