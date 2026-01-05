@@ -1332,7 +1332,7 @@ if ("raw_id" %in% colnames(clin_dat)) {
 }
 
 #select_clin_dat <- clin_dat %>% select(subject, vcis, line_z, mfigcopy_z, listtotal, storytotal_z, dspan_z, imis, diffss, cwi3cssfinal, cwi4cssfinal, coding_z)
-select_clin_dat <- clin_dat %>% select(subject, vcis, line_z, mfigcopy_z, listtotal, storytotal_z, dspan_z, imis, diffss, cwi3cssfinal, cwi4cssfinal, coding_z)
+select_clin_dat <- clin_dat %>% select(subject, vcis, line_z, mfigcopy_z, listtotal, storytotal_z, dspan_z, imis, diffss, cwi3cssfinal, cwi4cssfinal, coding_z, wrat5read, wrat5ss)
 
 # get rid of dummy coded variables
 select_clin_dat[select_clin_dat==995] <- NA 
@@ -1401,7 +1401,7 @@ dat3_cog_all <- dat3 %>%
          vcis_sc, line_sc, mfigcopy_sc, visuospatial_index, visuospatial_index_sc, ln_adj_visuospatial_index_sc,
          listtotal_sc, storytotal_sc, dspan_sc, imis_sc, working_memory_index, working_memory_index_sc,
          diffss_sc, cwi3cssfinal_sc, cwi4cssfinal_sc, executive_functioning_index, executive_functioning_index_sc,
-         coding_sc, attention_index, attention_index_sc)
+         coding_sc, attention_index, attention_index_sc, wrat5read, wrat5ss)
 
 #if want to filter down:
 dat3_cog <- dat3_cog_all %>%
@@ -1441,7 +1441,7 @@ dat3_cog_all_select <- dat3_cog_all %>% select(age_sc, edu_sc, pswq_sc, rsq_sc, 
                                                vcis_sc, line_sc, mfigcopy_sc, ln_adj_visuospatial_index_sc,
                                                listtotal_sc, storytotal_sc, dspan_sc, imis_sc, working_memory_index_sc,
                                                diffss_sc, cwi3cssfinal_sc, cwi4cssfinal_sc,
-                                               executive_functioning_index_sc, coding_sc, attention_index_sc)
+                                               executive_functioning_index_sc, coding_sc, attention_index_sc, wrat5read, wrat5ss)
 dat3_all_matrix <- as.matrix(dat3_cog_all_select)
 dat3_all_pearson_correlation_results <- rcorr(dat3_all_matrix, type="pearson") #or spearman
 dat3_all_pearson_p_values <- dat3_all_pearson_correlation_results$P
@@ -1586,6 +1586,13 @@ mod_updateStrengthMEM_cog_clinical <- dat3 %>%
     lm(prior_likelihood_diff_mem ~ ln_adj_visuospatial_index_sc + working_memory_index_sc +
          executive_functioning_index_sc + attention_index_sc + age + edu + sex + pswq + rsq, .)
 summary(mod_updateStrengthMEM_cog_clinical)
+
+#worry/rumination finding controlling for all cognitive factors
+mod_updateStrengthMEM_cog_clinical2 <- dat3 %>%
+    filter(prior_likelihood_diff_mem > -0.75) %>%
+    mutate_at(c("age","edu","pswq","rsq"), scale) %>%
+    lm(prior_likelihood_diff_mem ~ line_sc + age + edu + sex + pswq + rsq, .)
+summary(mod_updateStrengthMEM_cog_clinical2)
 
 #worry/rumination finding controlling for visuospatial only
 mod_updateStrengthMEM_visuospatial_clinical <- dat3 %>%
