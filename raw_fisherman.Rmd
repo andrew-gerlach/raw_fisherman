@@ -19,7 +19,6 @@ library(stringr)
 library(gridExtra)
 library(philentropy)
 library(lme4)
-library(lmerTest)
 library(ggpubr)
 library(sjPlot)
 library(grid)
@@ -152,16 +151,29 @@ model_clinical_behavior <- function(dat, dat3, behav, clin, behav_label, clin_la
 ## Set options...
 
 ```{r options, include=TRUE}
+andrew = T
 
-# file containing task data
-task_data_file <- "/Users/angela/OneDrive\ -\ UPMC/Documents/Research/Fisherman_Andrew/gerlachar_argo_decision_making_fisherman_ipad_raw_2507111521.xlsx"
+if(andrew) {
+  
+  # file containing task data
+  task_data_file <- "/Users/gerlachar/Fellowship/projects/raw/data/gerlachar_argo_decision_making_fisherman_ipad_raw_2507111521.xlsx"
 
-# file containing study data
-clin_data_file <- "/Users/angela/OneDrive\ -\ UPMC/Documents/Research/Fisherman_Andrew/RAW_study_data.xlsx"
+  # file containing study data
+  clin_data_file <- "/Users/gerlachar/Fellowship/projects/raw/data/RAW_study_data.xlsx"
+  
+} else {
+
+  # file containing task data
+  task_data_file <- "/Users/angela/OneDrive\ -\ UPMC/Documents/Research/Fisherman_Andrew/gerlachar_argo_decision_making_fisherman_ipad_raw_2507111521.xlsx"
+
+  # file containing study data
+  clin_data_file <- "/Users/angela/OneDrive\ -\ UPMC/Documents/Research/Fisherman_Andrew/RAW_study_data.xlsx"
+  
+}
 
 # exclusion criteria from 0 (most relaxed) to 2 (most stringent)
 stringent <- 1
-if(stringent == 1) {
+if(stringent == 2) {
     print_msg("Excluding participants with marginal data")
 } else {
     print_msg("Only excluding participants with poor data")
@@ -2739,44 +2751,71 @@ formula_fns <- list(dev_formula_fn, dev_pswq_formula_fn, dev_rsq_formula_fn,
 
 #results <- list()
 
+individual_measure_results = data.frame("NP_measure"=rep(vars, each=9),
+                                        "task_measure"=rep(rep(c("dev", "pw", "us"), each=3), length(vars)),
+                                        "model_type"=rep(c("main", "worry_int", "rum_int"), 3 * length(vars)),
+                                        "t"=rep(NA, 9 * length(vars)),
+                                        "p"=rep(NA, 9 * length(vars)))
 
-
+k = 0
 for (v in vars) {
   print(v)
 
   # MLM for performance (deviation from optimal)
   print("MLM, deviation from optimal")
-  model1 <- lmer(dev_formula_fn(v), data = dat)
+  model1 <- dat %>%
+    filter(blocknum %in% blocks, trialnum > 1) %>%
+    lmer(dev_formula_fn(v), .)
   summary(model1)
   print("MLM deviation from optimal - worry interaction")
-  model2 <- lmer(dev_pswq_formula_fn(v), data = dat)
+  model2 <- dat %>%
+    filter(blocknum %in% blocks, trialnum > 1) %>%
+    lmer(dev_pswq_formula_fn(v), .)
   summary(model2)
   print("MLM deviation from optimal - rumination interaction")
-  model3 <- lmer(dev_rsq_formula_fn(v), data = dat)
+  model3 <- dat %>%
+    filter(blocknum %in% blocks, trialnum > 1) %>%
+    lmer(dev_rsq_formula_fn(v), .)
   summary(model3)
   
   # MLM for prior strength 
-  print("MLM, prior strength")
-  model4 <- lmer(prior_formula_fn(v), data = dat)
+  print("MLM, prior weight")
+  model4 <- dat %>%
+    filter(blocknum %in% blocks, trialnum > 1) %>%
+    lmer(prior_formula_fn(v), .)
   summary(model4)
-  print("MLM deviation from optimal - worry interaction")
-  model5 <- lmer(prior_pswq_formula_fn(v), data = dat)
+  print("MLM prior weight - worry interaction")
+  model5 <- dat %>%
+    filter(blocknum %in% blocks, trialnum > 1) %>%
+    lmer(prior_pswq_formula_fn(v), .)
   summary(model5)
-  print("MLM deviation from optimal - rumination interaction")
-  model6 <- lmer(prior_rsq_formula_fn(v), data = dat)
+  print("MLM prior weight - rumination interaction")
+  model6 <- dat %>%
+    filter(blocknum %in% blocks, trialnum > 1) %>%
+    lmer(prior_rsq_formula_fn(v), .)
   summary(model6)
 
   # Update strength regression model
   print("linear model, update strength")
   model7 <- lm(update_formula_fn(v), data = dat3)
   summary(model7)
-  print("MLM deviation from optimal - worry interaction")
+  print("linear model, update strength - worry interaction")
   model8 <- lm(update_pswq_formula_fn(v), data = dat3)
   summary(model8)
-  print("MLM deviation from optimal - rumination interaction")
+  print("linear model, update strength - rumination interaction")
   model9 <- lm(update_rsq_formula_fn(v), data = dat3)
   summary(model9)
   
+  individual_measure_results[k + 1, 4:5] = round(coef(summary(model1))[2, 4:5], 3)
+  individual_measure_results[k + 2, 4:5] = round(coef(summary(model2))[7, 4:5], 3)
+  individual_measure_results[k + 3, 4:5] = round(coef(summary(model3))[7, 4:5], 3)
+  individual_measure_results[k + 4, 4:5] = round(coef(summary(model4))[2, 4:5], 3)
+  individual_measure_results[k + 5, 4:5] = round(coef(summary(model5))[7, 4:5], 3)
+  individual_measure_results[k + 6, 4:5] = round(coef(summary(model6))[7, 4:5], 3)
+  individual_measure_results[k + 7, 4:5] = round(coef(summary(model7))[2, 3:4], 3)
+  individual_measure_results[k + 8, 4:5] = round(coef(summary(model8))[7, 3:4], 3)
+  individual_measure_results[k + 9, 4:5] = round(coef(summary(model9))[7, 3:4], 3)
+  k = k + 9
  
   print(summary(model1))
   print(summary(model2))
