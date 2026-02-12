@@ -28,6 +28,7 @@ library(Hmisc)
 library(emmeans)
 library(ggeffects)
 library(interactions)
+library(tableone)
 
 ################################################################################
 # print message or blank line if empty                                         #
@@ -96,22 +97,27 @@ get_lm_p = function(mod, i) {
 #      mod - mixed effects model of trial level fit
 ################################################################################
 
-model_clinical_behavior <- function(dat, dat3, behav, clin, behav_label, clin_label, x, y, behav_plot) {
+model_clinical_behavior <- function(dat, dat3, behav, clin, behav_label, clin_label, x=0, y=0, behav_plot) {
 
     # default plot to behavior
     if(missing(behav_plot)) { behav_plot = behav }
   
     # formula
-    form <- as.formula(paste(behav, "~", clin, "+ (1 | subject)"))
+    form <- as.formula(paste(behav, "~ pswq + rsq + age + sex + edu + (1 | subject)"))
     # fit model
     mod <- dat %>%
-        mutate_at(c(behav, clin), scale) %>%
+        mutate_at(c(behav, "pswq", "rsq", "age", "edu"), scale) %>%
         lmer(form, .)
     mod_plot <- dat %>%
         lmer(form, .)
     
     # extract model fit
-    g_df <- plot_model(mod_plot, type="pred")$data
+    tmp <- plot_model(mod_plot, type="pred")
+    if(clin == "pswq") {
+      g_df <- tmp[[1]]$data
+    } else {
+      g_df <- tmp[[2]]$data
+    }
     # adjust to account for plotting only with moderate prior mean data
     adj <- mean(dat3[[behav_plot]], na.rm=T) - mean(g_df$predicted)
     g_df$predicted <- g_df$predicted + adj
@@ -125,22 +131,28 @@ model_clinical_behavior <- function(dat, dat3, behav, clin, behav_label, clin_la
     
     # set color based on significance
     col = "blue"
-    if(round(add_p_values_to_lmer(mod)[2, 4], 2) <= 0.05) { col = "red" }
+    if(clin == "pswq") {
+      if(add_p_values_to_lmer(mod)[2, 4] <= 0.05) { col = "red" }
+    } else {
+      if(add_p_values_to_lmer(mod)[3, 4] <= 0.05) { col = "red" }
+    }
 
     # generate plot
     g <- dat3 %>%
         ggplot(aes(.data[[clin]], .data[[behav_plot]])) +
-        geom_point(size=2) +
+        geom_point(size=3) +
         geom_line(aes(x, predicted), data=g_df, color=col, size=2) +
         geom_ribbon(aes(x=x, ymin=conf.low, ymax=conf.high), data=g_df, alpha=0.2, fill=col, color=NA, inherit.aes = FALSE) +
-        annotate(geom="text", x=x, y=y, label=annot, size=18/.pt, color=col) +
         xlab(clin_label) +
         ylab(behav_label) +
-        theme(text=element_text(size=18),
+        theme(text=element_text(size=24),
             strip.background=element_blank(),
             panel.background=element_blank(),
             axis.line=element_line(),
             axis.ticks=element_blank())
+    if(x != 0) {
+      g = g + annotate(geom="text", x=x, y=y, label=annot, size=24/.pt, color=col)
+    }
     
     return(list(g = g, mod = mod))
 
@@ -178,6 +190,12 @@ if(stringent == 2) {
 } else {
     print_msg("Only excluding participants with poor data")
 }
+
+ default_theme = theme(text=element_text(size=24),
+                       strip.background=element_blank(),
+                       panel.background=element_blank(),
+                       axis.line=element_line(),
+                       axis.ticks=element_blank())
 ```
 
 ## Set parameters...
@@ -469,7 +487,7 @@ for(i in ids) {
 
 }
 
-# Code direction-independent prior strength
+# Code direction-independent prior weight
 dat$prior_strength <- abs(dat$prior - 0.5) * 10
 # Add trial level deviation
 dat$dev_signed = dat$prob_A - dat$bayes_A_full
@@ -507,16 +525,42 @@ plot_subject(ids[1])
 ```{r exclude, include=T}
 
 # Excluded participants for poor data
-excl <- c("RAW_1243", "RAW_1261", "RAW_1251", "RAW_1264", "RAW_1255",
-          "RAW_1224", "RAW_1224", "RAW_1291", "RAW_1269", "RAW_1250",
-          "RAW_1328", "RAW_1337", "RAW_1366", "RAW_1345")
+excl <- c("RAW_1243",   # 70 no changes
+          "RAW_1261",   # 65 no changes
+          "RAW_1251",   # 80 no changes 
+          "RAW_1264",   # 71 no changes
+          "RAW_1255",   # 79 no changes
+          "RAW_1224",   # 74 no changes
+          "RAW_1291",   # 80 no changes
+          "RAW_1269",   # 69 no changes
+          "RAW_1250",   # all 1's and 5's
+          "RAW_1258",   # incomplete
+          "RAW_1328",   # 80 no changes
+          "RAW_1337",   # 80 no changes
+          "RAW_1366",   # 56 no changes (only did blocks 4-8, 16, 17)
+          "RAW_1345")   # 80 no changes
 
 # Barely acceptable data
 if(stringent == 1) {
-    excl <- c(excl, "RAW_1228", "RAW_1245", "RAW_1247", "RAW_1183", "RAW_1206",
-                    "RAW_1225", "RAW_1260", "RAW_1312", "RAW_1322", "RAW_1315",
-                    "RAW_1333", "RAW_1352", "RAW_1354", "RAW_1361", "RAW_1364",
-                    "RAW_1373", "RAW_1396", "RAW_1406")
+    excl <- c(excl, "RAW_1228",   # swinger
+                    "RAW_1245",   # swinger
+                    "RAW_1247",   # swinger
+                    "RAW_1252",   # prior weirdness + swinger
+                    "RAW_1183",   # swinger
+                    "RAW_1206",   # swinger
+                    "RAW_1225",   # stagnant (and swinger!)
+                    "RAW_1260",   # stagnant (and swinger!)
+                    "RAW_1312",   # stagnant
+                    "RAW_1322",   # swinger
+                    "RAW_1315",   # stagnant
+                    "RAW_1333",   # stagnant
+                    "RAW_1352",   # stagnant (swinger first)
+                    "RAW_1354",   # stagnant
+                    "RAW_1361",   # swinger
+                    "RAW_1364",   # stagnant
+                    "RAW_1373",   # stagnant
+                    "RAW_1396",   # stagnant
+                    "RAW_1406")   # swinger
 }
 
 for(i in excl) {
@@ -775,6 +819,11 @@ for(i in ids) {
 
 }
 
+dat$sex = factor(dat$sex, levels=c(2, 1), labels=c("F", "M"))
+dat2$sex = factor(dat2$sex, levels=c(2, 1), labels=c("F", "M"))
+dat$race = factor(dat$race, levels=c(1, 2, 4, 6), labels=c("white", "black", "asian", "multi"))
+dat2$race = factor(dat2$race, levels=c(1, 2, 4, 6), labels=c("white", "black", "asian", "multi"))
+
 # add missing data
 #idx = which(dat2$subject == "RAW_1206")
 #dat$pswq[idx] = 60; dat$rsq[idx] = 47; dat$hars[idx] = 9
@@ -835,7 +884,11 @@ for(i in ids) {
 
 dat2$prior_likelihood_diff_lm = dat2$prior_weight_lm - dat2$likelihood_weight_lm
 
-mod <- lmer(log(prob_A) ~ (1 + log(trial_prior) + log(like_A) | subject), dat)
+# model for deriving update strength parameter
+# (filter not actually necessary since trial_prior is NA for those, but keeping it for the feels)
+mod <- dat %>%
+  filter(trialnum > 1, blocknum %in% blocks) %>%
+  lmer(log(prob_A) ~ (1 + log(trial_prior) + log(like_A) | subject), .)
 
 dat3 <- dat2 %>% filter(block == 19) %>% select(-block)
 dat3 <- cbind(dat3, coef(mod)$subject)
@@ -843,14 +896,105 @@ names(dat3)[(ncol(dat3) - 2) : ncol(dat3)] <- c("prior_weight_mem", "likelihood_
 dat3$prior_likelihood_diff_mem <- dat3$prior_weight_mem - dat3$likelihood_weight_mem
 
 ```
+### Table 1
 
+```{r demographic_table}
+
+CreateTableOne(data=dat3,
+               vars=c("age",
+                      "sex",
+                      "race",
+                      "edu",
+                      "pswq",
+                      "rsq",
+                      "hars",
+                      "hamd"))
+
+```
+## Model Fit
+
+```{r model_fit}
+
+# Comparison of model and participant ratings
+mod_fit = dat %>% 
+  filter(trialnum > 1, blocknum %in% blocks) %>%
+  mutate_at(c("prob_A", "bayes_A_full"), scale) %>%
+  lmer(prob_A ~ bayes_A_full + (1 | subject), .)
+g_performance = dat %>%
+  filter(trialnum > 1, blocknum %in% blocks) %>%
+  ggplot(aes(bayes_A_full, prob_A)) +
+  geom_bin2d(aes(fill=after_stat(density)), bins=8) +
+  scale_fill_continuous(type="viridis") +
+  xlab("Bayesian optimal probability") +
+  ylab("Participant-provided probability") +
+  default_theme
+g_dev = dat3 %>%
+  ggplot(aes(dev_full_abs)) +
+  geom_histogram(aes(y=after_stat(density)), breaks=seq(0.05, 0.25, 0.02)) +
+  xlab("Deviation") +
+  ylab("Density") +
+  default_theme
+
+g_priorA2 = dat %>%
+  filter(trialnum == 1, POS == -2) %>%
+  ggplot(aes(prior)) +
+  geom_histogram(aes(after_stat(density)), breaks=seq(0.05, 0.95, 0.1), fill="#F8766D") +
+  scale_y_continuous(limits=c(0, 10), breaks=seq(0, 10, 2)) +
+  xlab("Prior Probability") +
+  ylab("Density") + 
+  default_theme
+g_priorA1 = dat %>%
+  filter(trialnum == 1, POS == -1) %>%
+  ggplot(aes(prior)) +
+  geom_histogram(aes(y = after_stat(density)), breaks=seq(0.05, 0.95, 0.1), fill="#619CFF") +
+  scale_y_continuous(limits=c(0, 10), breaks=seq(0, 10, 2)) +
+  xlab("Prior Probability") +
+  ylab("Density") + 
+  default_theme
+g_prior00 = dat %>%
+  filter(trialnum == 1, POS == 0) %>%
+  ggplot(aes(prior)) +
+  geom_histogram(aes(y = after_stat(density)), breaks=seq(0.05, 0.95, 0.1), fill="#00BA38") +
+  scale_y_continuous(limits=c(0, 10), breaks=seq(0, 10, 2)) +
+  xlab("Prior Probability") +
+  ylab("Density") + 
+  default_theme
+g_priorB1 = dat %>%
+  filter(trialnum == 1, POS == 1) %>%
+  ggplot(aes(prior)) +
+  geom_histogram(aes(y = after_stat(density)), breaks=seq(0.05, 0.95, 0.1), fill="#619CFF") +
+  scale_y_continuous(limits=c(0, 10), breaks=seq(0, 10, 2)) +
+  xlab("Prior Probability") +
+  ylab("Density") + 
+  default_theme
+g_priorB2 = dat %>%
+  filter(trialnum == 1, POS == 2) %>%
+  ggplot(aes(prior)) +
+  geom_histogram(aes(y = after_stat(density)), breaks=seq(0.05, 0.95, 0.1), fill="#F8766D") +
+  scale_y_continuous(limits=c(0, 10), breaks=seq(0, 10, 2)) +
+  xlab("Prior Probability") +
+  ylab("Density") + 
+  default_theme
+
+g_update = dat3 %>%
+  ggplot(aes(prior_likelihood_diff_mem)) +
+  geom_histogram(aes(y=after_stat(density)), breaks=seq(-1, 1, 0.2)) +
+  xlab("Update Strength") +
+  ylab("Density") +
+  default_theme
+
+# mean/st dev error
+dat %>% filter(trialnum > 1, blocknum %in% blocks) %>% pull(dev) %>% mean()
+dat %>% filter(trialnum > 1, blocknum %in% blocks) %>% pull(dev) %>% sd()
+
+```
 
 ## Clinical associations of behavior
 
-### Prior strength
+### Prior weight
 ```{r behavior_prior_associations_VISUAL_SUMMARY_ONLY, include=T}
 
-# Plot mean values for moderate prior strength
+# Plot mean values for moderate prior weight
 g_prior_mean1_pswq <- dat3 %>%
     ggplot(aes(pswq, prior_mean1)) +
     geom_point() +
@@ -896,7 +1040,7 @@ g_prior_mean1_hamd <- dat3 %>%
           axis.line=element_line(),
           axis.ticks=element_blank())
 
-# Moderate prior strength models
+# Moderate prior weight models
 mod_prior1_pswq <- dat %>%
     filter(trialnum == 1, abs(POS) == 1) %>%
     mutate_at(c("prior_strength", "pswq"), scale) %>%
@@ -914,7 +1058,7 @@ mod_prior1_hamd <- dat %>%
     mutate_at(c("prior_strength", "hamd"), scale) %>%
     lmer(prior_strength ~ hamd + (1 | subject), .)
 
-# Plot mean values for strong prior strength
+# Plot mean values for strong prior weight
 g_prior_mean2_pswq <- dat3 %>%
     ggplot(aes(pswq, prior_mean2)) +
     geom_point() +
@@ -991,32 +1135,40 @@ The reported statistics are for trial level data, but such data does not make fo
 # PSWQ
 tmp <- dat %>%
     filter(trialnum == 1, POS != 0) %>%
-    model_clinical_behavior(dat3, "prior_strength", "pswq", "Prior Strength", "Worry (PSWQ)", 35, 0.75, "prior_mean1")
+    model_clinical_behavior(dat3, "prior_strength", "pswq", "Prior Weight (a.u)", "Worry (PSWQ)", 0, 0, "prior_mean1")
+    # model_clinical_behavior(dat3, "prior_strength", "pswq", "Prior Weight", "Worry (PSWQ)", 35, 0.6, "prior_mean1")
 g_prior_pswq <- tmp$g
 mod_prior_pswq <- tmp$mod
 
 # RSQ
 tmp <- dat %>%
     filter(trialnum == 1, POS != 0) %>%
-    model_clinical_behavior(dat3, "prior_strength", "rsq", "Prior Strength", "Rumination (RSQ)", 60, 0.75, "prior_mean1")
+    model_clinical_behavior(dat3, "prior_strength", "rsq", "Prior Weight (a.u.)", "Rumination (RSQ)", 0, 0, "prior_mean1")
+    # model_clinical_behavior(dat3, "prior_strength", "rsq", "Prior Weight", "Rumination (RSQ)", 60, 0.75, "prior_mean1")
 g_prior_rsq <- tmp$g
 mod_prior_rsq <- tmp$mod
 
 # HARS
 tmp <- dat %>%
     filter(trialnum == 1, POS != 0) %>%
-    model_clinical_behavior(dat3, "prior_strength", "hars", "Prior Strength", "Anxiety (HARS)", 20, 0.75, "prior_mean1")
+    model_clinical_behavior(dat3, "prior_strength", "hars", "Prior Weight", "Anxiety (HARS)", 20, 0.75, "prior_mean1")
 g_prior_hars <- tmp$g
 mod_prior_hars <- tmp$mod
 
 # HAMD
 tmp <- dat %>%
     filter(trialnum == 1, POS != 0) %>%
-    model_clinical_behavior(dat3, "prior_strength", "hamd", "Prior Strength", "Depression (HAMD)", 15, 0.75, "prior_mean1")
+    model_clinical_behavior(dat3, "prior_strength", "hamd", "Prior Weight", "Depression (HAMD)", 15, 0.75, "prior_mean1")
 g_prior_hamd <- tmp$g
 mod_prior_hamd <- tmp$mod
 
 grid.arrange(g_prior_pswq, g_prior_rsq, g_prior_hars, g_prior_hamd, nrow=2, ncol=2)
+
+# FINAL MODEL FOR REPORTING IN THE MANUSCRIPT
+mod_prior = dat %>%
+  filter(trialnum == 1, POS != 0) %>%
+  mutate_at(c("prior_strength", "pswq", "rsq", "age", "edu"), scale) %>%
+  lmer(prior_strength ~ pswq + rsq + age + sex + edu + (1 | subject), .)
 
 ```
 
@@ -1030,14 +1182,14 @@ AI added 9/9/2025: prior1 only considers the prior when the fisherman’s in the
 # PSWQ
 tmp <- dat %>%
     filter(trialnum > 1, blocknum != 11, blocknum != 20) %>%
-    model_clinical_behavior(dat3, "dev", "pswq", "Deviation (abs.)", "Worry (PSWQ)", 65, 0.22, "dev_full_abs")
+    model_clinical_behavior(dat3, "dev", "pswq", "Deviation (a.u.)", "Worry (PSWQ)", 0, 0, "dev_full_abs")
 g_dev_abs_pswq <- tmp$g
 mod_dev_abs_pswq <- tmp$mod
 
 # RSQ
 tmp <- dat %>%
     filter(trialnum > 1, blocknum != 11, blocknum != 20) %>%
-    model_clinical_behavior(dat3, "dev", "rsq", "Deviation (abs.)", "Rumination (RSQ)", 60, 0.22, "dev_full_abs")
+    model_clinical_behavior(dat3, "dev", "rsq", "Deviation (a.u.)", "Rumination (RSQ)", 0, 0, "dev_full_abs")
 g_dev_abs_rsq <- tmp$g
 mod_dev_abs_rsq <- tmp$mod
 
@@ -1056,6 +1208,12 @@ g_dev_abs_hamd <- tmp$g
 mod_dev_abs_hamd <- tmp$mod
 
 grid.arrange(g_dev_abs_pswq, g_dev_abs_rsq, g_dev_abs_hars, g_dev_abs_hamd, nrow=2, ncol=2)
+
+# FINAL MODEL FOR REPORTING IN THE MANUSCRIPT
+mod_dev_abs = dat %>%
+  filter(trialnum > 1, blocknum %in% blocks) %>%
+  mutate_at(c("dev", "pswq", "rsq", "age", "edu"), scale) %>%
+  lmer(dev ~ pswq + rsq + age + sex + edu + (1 | subject), .)
 
 ```
 
@@ -1186,12 +1344,11 @@ g_prior_likelihood_diff_mem_pswq <- dat3 %>%
     filter(prior_likelihood_diff_mem > -0.75) %>%
     ggplot(aes(pswq, prior_likelihood_diff_mem)) +
     geom_point(size=3) +
-    stat_smooth(method="lm", size=3, color="gray", fill="gray") +
+    stat_smooth(method="lm", size=2, fill="blue", alpha=0.2) +
     #stat_smooth(method="lm", size=2, color="lightgray", fill=rgb(0, 0, 1, 0.2)) +
-    annotate(geom="text", x=70, y=-0.4, label=lab, color="gray", size=18/.pt) +
     xlab("Worry (PSWQ)") +
-    ylab("Update Strength") +
-    theme(text=element_text(size=18),
+    ylab("Update Strength (a.u.)") +
+    theme(text=element_text(size=24),
           strip.background=element_blank(),
           panel.background=element_blank(),
           axis.line=element_line(),
@@ -1201,12 +1358,11 @@ g_prior_likelihood_diff_mem_rsq <- dat3 %>%
     filter(prior_likelihood_diff_mem > -0.75) %>%
     ggplot(aes(rsq, prior_likelihood_diff_mem)) +
     geom_point(size=3) +
-    stat_smooth(method="lm", size=3, color="darkmagenta", fill="darkmagenta") +
+    stat_smooth(method="lm", size=2, color="red", fill="red", alpha=0.2) +
     #stat_smooth(method="lm", size=2, color="red", fill=rgb(1, 0, 0, 0.2)) +
-    annotate(geom="text", x=65, y=-0.4, label=lab, color="darkmagenta", size=18/.pt) +
     xlab("Rumination (RSQ)") +
-    ylab("Update Strength") +
-    theme(text=element_text(size=18),
+    ylab("Update Strength (a.u.)") +
+    theme(text=element_text(size=24),
           strip.background=element_blank(),
           panel.background=element_blank(),
           axis.line=element_line(),
@@ -1246,6 +1402,11 @@ grid.arrange(g_prior_likelihood_diff_mem_pswq, g_prior_likelihood_diff_mem_rsq,
              g_prior_likelihood_diff_mem_hars, g_prior_likelihood_diff_mem_hamd,
              nrow=2, ncol=2)
 
+# FINAL MODEL FOR REPORTING IN THE MANUSCRIPT
+mod_update = dat3 %>% 
+  filter(subject != "RAW_1279") %>%   # remove outlier per Grubb's test
+  mutate_at(c("prior_likelihood_diff_mem", "pswq", "rsq", "age", "edu"), scale) %>%
+  lm(prior_likelihood_diff_mem ~ pswq + rsq + age + sex + edu, .)
 
 ```
 
@@ -1407,7 +1568,7 @@ if (!("visuospatial_index" %in% colnames(dat))) {
 ```{r cognition_correlations, include=T, fig.width=12, fig.height=10}
 
 # Test broadly for correlations
-dat_age_prior <- dat %>% select(subject,age,edu) %>% unique() #don't think we can use prior strength here
+dat_age_prior <- dat %>% select(subject,age,edu) %>% unique() #don't think we can use prior weight here
 dat3 <- dat3 %>%
   mutate(edu_sc = scale(edu),
          age_sc = scale(age),
@@ -1588,7 +1749,7 @@ summary(mod_perf_cog2)
 summary(mod_perf_cog3)
 summary(mod_perf_cog4)
 
-# MLM for prior strength 
+# MLM for prior weight 
 mod_prior_cognition <- dat %>%
     filter(trialnum == 1, POS != 0) %>%
     mutate_at(c("prior_strength","age","edu"), scale) %>%
@@ -1907,7 +2068,7 @@ grid.arrange(g_dev_visuospatial, g_dev_working_memory, g_dev_executive_function,
 
 
 
-# Plots for prior strength 
+# Plots for prior weight 
 ## Shared theme (optional, just to avoid repetition)
 base_theme <- theme(
   text = element_text(size = 18),
@@ -1923,7 +2084,7 @@ g_prior_visuospatial <- dat3 %>%
   stat_smooth(method = "lm", size = 3,
               color = "gray", fill = "gray") +
   xlab("Visuospatial (transformed, z-score)") +
-  ylab("Prior Strength") +
+  ylab("Prior Weight") +
   base_theme
 # Working memory: gray, size 3
 g_prior_working_memory <- dat3 %>%
@@ -1932,7 +2093,7 @@ g_prior_working_memory <- dat3 %>%
   stat_smooth(method = "lm", size = 3,
               color = "gray", fill = "gray") +
   xlab("Working memory (z-score)") +
-  ylab("Prior Strength") +
+  ylab("Prior Weight") +
   base_theme
 # Executive function: gray, size 3 
 g_prior_executive_function <- dat3 %>%
@@ -1941,7 +2102,7 @@ g_prior_executive_function <- dat3 %>%
   stat_smooth(method = "lm", size = 3,
               color = "gray", fill = "gray") +
   xlab("Executive function (z-score)") +
-  ylab("Prior Strength") +
+  ylab("Prior Weight") +
   base_theme
 # Attention: gray, size 3 
 g_prior_attention <- dat3 %>%
@@ -1950,7 +2111,7 @@ g_prior_attention <- dat3 %>%
   stat_smooth(method = "lm", size = 3,
               color = "gray", fill = "gray") +
   xlab("Attention (z-score)") +
-  ylab("Prior Strength") +
+  ylab("Prior Weight") +
   base_theme
 grid.arrange(
   g_prior_visuospatial,
@@ -2549,7 +2710,7 @@ summary(mod_perf_cog3r)
 summary(mod_perf_cog4w)
 summary(mod_perf_cog4r)
 
-# MLM for prior strength 
+# MLM for prior weight 
 mod_prior_cognition1w <- dat %>%
     filter(trialnum == 1, POS != 0) %>%
     mutate_at(c("prior_strength","age","edu","pswq","rsq"), scale) %>%
@@ -2778,7 +2939,7 @@ for (v in vars) {
     lmer(dev_rsq_formula_fn(v), .)
   summary(model3)
   
-  # MLM for prior strength 
+  # MLM for prior weight 
   print("MLM, prior weight")
   model4 <- dat %>%
     filter(blocknum %in% blocks, trialnum > 1) %>%
