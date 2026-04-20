@@ -92,17 +92,19 @@ get_lm_p = function(mod, i) {
 #      clin_label - plot label for clinical measure
 #      x - x coordinate of statistical annotation on plot
 #      y - y coordinate of statistical annotation on plot
+#      col - color to use for fit line
+#      behav_plot - average variable to use for plotting MLM results
 # Out: g - plot of mean behavior with trial level fit
 #      mod - mixed effects model of trial level fit
 ################################################################################
 
-model_clinical_behavior <- function(dat, dat3, behav, clin, behav_label, clin_label, x, y, behav_plot) {
+model_clinical_behavior <- function(dat, dat3, behav, clin, behav_label, clin_label, x, y, col, behav_plot) {
 
     # default plot to behavior
     if(missing(behav_plot)) { behav_plot = behav }
   
     # formula
-    form <- as.formula(paste(behav, "~", clin, "+ (1 | subject)"))
+    form <- as.formula(paste(behav, "~", clin, "+ age + sex + edu + (1 | subject)"))
     # fit model
     mod <- dat %>%
         mutate_at(c(behav, clin), scale) %>%
@@ -111,7 +113,7 @@ model_clinical_behavior <- function(dat, dat3, behav, clin, behav_label, clin_la
         lmer(form, .)
     
     # extract model fit
-    g_df <- plot_model(mod_plot, type="pred")$data
+    g_df <- plot_model(mod_plot, type="pred")[[clin]]$data
     # adjust to account for plotting only with moderate prior mean data
     adj <- mean(dat3[[behav_plot]], na.rm=T) - mean(g_df$predicted)
     g_df$predicted <- g_df$predicted + adj
@@ -124,16 +126,17 @@ model_clinical_behavior <- function(dat, dat3, behav, clin, behav_label, clin_la
                     add_p_values_to_lmer(mod)[2, 4])
     
     # set color based on significance
-    col = "blue"
-    if(round(add_p_values_to_lmer(mod)[2, 4], 2) <= 0.05) { col = "red" }
+    if(missing(col)) {
+      col = "blue"
+      if(round(add_p_values_to_lmer(mod)[2, 4], 2) <= 0.05) { col = "red" }
+    }
 
     # generate plot
     g <- dat3 %>%
         ggplot(aes(.data[[clin]], .data[[behav_plot]])) +
-        geom_point(size=2) +
+        geom_point(size=3) +
         geom_line(aes(x, predicted), data=g_df, color=col, size=2) +
         geom_ribbon(aes(x=x, ymin=conf.low, ymax=conf.high), data=g_df, alpha=0.2, fill=col, color=NA, inherit.aes = FALSE) +
-        annotate(geom="text", x=x, y=y, label=annot, size=18/.pt, color=col) +
         xlab(clin_label) +
         ylab(behav_label) +
         theme(text=element_text(size=18),
@@ -141,6 +144,7 @@ model_clinical_behavior <- function(dat, dat3, behav, clin, behav_label, clin_la
             panel.background=element_blank(),
             axis.line=element_line(),
             axis.ticks=element_blank())
+    if(!is.null(x)) { g <- g + annotate(geom="text", x=x, y=y, label=annot, size=18/.pt, color=col) }
     
     return(list(g = g, mod = mod))
 
@@ -156,10 +160,13 @@ andrew = T
 if(andrew) {
   
   # file containing task data
-  task_data_file <- "/Users/gerlachar/Fellowship/projects/raw/data/gerlachar_argo_decision_making_fisherman_ipad_raw_2507111521.xlsx"
+  task_data_file <- "~/Fellowship/projects/raw/data/gerlachar_argo_decision_making_fisherman_ipad_raw_2507111521.xlsx"
 
   # file containing study data
-  clin_data_file <- "/Users/gerlachar/Fellowship/projects/raw/data/RAW_study_data.xlsx"
+  clin_data_file <- "~/Fellowship/projects/raw/data/RAW_study_data.xlsx"
+  
+  # file containing rsq subscale data
+  clin_data_file2 <- "~/Fellowship/projects/raw/data/Andrew_Fisherman_RSQ_Subscales_4.20.26.xlsx"
   
 } else {
 
@@ -168,7 +175,10 @@ if(andrew) {
 
   # file containing study data
   clin_data_file <- "/Users/angela/OneDrive\ -\ UPMC/Documents/Research/Fisherman_Andrew/RAW_study_data.xlsx"
-  
+    
+  # file containing rsq subscale data (Ang, you may need to add this file if rerunning)
+  clin_data_file2 <- "~/Users/angela/OneDrive\ -\ UPMC/Documents/Research/Fisherman_Andrew/Andrew_Fisherman_RSQ_Subscales_4.20.26.xlsx"
+ 
 }
 
 # exclusion criteria from 0 (most relaxed) to 2 (most stringent)
@@ -219,6 +229,12 @@ all_blocks <- 3 : 20
 # do not analyze block 1 (walkthrough example), 2 (trial block), 11 or 20 (catch blocks)
 blocks <- c(3 : 10, 12 : 19)
 
+default_plot_theme = theme(text=element_text(size=18),
+                           strip.background=element_blank(),
+                           panel.background=element_blank(),
+                           axis.line=element_line(),
+                           axis.ticks=element_blank())
+
 ```
 
 ## Read in and preprocess data...
@@ -230,6 +246,9 @@ dat <- read_excel(task_data_file)
 
 # read in clinical data file
 clin_dat <- read_excel(clin_data_file)
+
+# read in brooding and reflection subscale data
+clin_dat2 <- read_excel(clin_data_file2)
 
 # remove walkthrough data
 dat <- dat %>% filter(blocknum != 1)
@@ -741,6 +760,10 @@ dat$pswq <- NA
 dat$rsq <- NA
 dat$hars <- NA
 dat$hamd <- NA
+dat2$age <- NA
+dat2$edu <- NA
+dat2$race <- NA
+dat2$sex <- NA
 dat2$pswq <- NA
 dat2$rsq <- NA
 dat2$hars <- NA
@@ -775,26 +798,25 @@ for(i in ids) {
 
 }
 
-# add missing data
-#idx = which(dat2$subject == "RAW_1206")
-#dat$pswq[idx] = 60; dat$rsq[idx] = 47; dat$hars[idx] = 9
-#idx = which(dat2$subject == "RAW_1206")
-#dat2$pswq[idx] = 60; dat2$rsq[idx] = 47; dat2$hars[idx] = 9
+dat$brood = NA
+dat$refl = NA
+dat2$brood = NA
+dat2$refl = NA
 
-#idx = which(dat$subject == "RAW_1264")
-#dat$pswq[idx] = 46; dat$rsq[idx] = 54; dat$hars[idx] = 23
-#idx = which(dat2$subject == "RAW_1264")
-#dat2$pswq[idx] = 46; dat2$rsq[idx] = 54; dat2$hars[idx] = 23
+for(i in ids) {
 
-#idx = which(dat$subject == "RAW_1310")
-#dat$pswq[idx] = 57; dat$rsq[idx] = 33; dat$hars[idx] = 12
-#idx = which(dat2$subject == "RAW_1310")
-#dat2$pswq[idx] = 57; dat2$rsq[idx] = 33; dat2$hars[idx] = 12
-
-#idx = which(dat$subject == "RAW_1320")
-#dat$pswq[idx] = 50; dat$rsq[idx] = 27; dat$hars[idx] = 6
-#idx = which(dat2$subject == "RAW_1320")
-#dat2$pswq[idx] = 50; dat2$rsq[idx] = 27; dat2$hars[idx] = 6
+    # check for data
+    if(!(i %in% clin_dat2$raw_id)) {
+        print_msg(paste("WARNING: RSQ subscale data missing for", i))
+        next
+    }
+  
+    dat$brood[dat$subject == i] <- clin_dat2$rsq_brooding[clin_dat2$raw_id == i]
+    dat$refl[dat$subject == i] <- clin_dat2$rsq_reflection[clin_dat2$raw_id == i]
+    dat2$brood[dat2$subject == i] <- clin_dat2$rsq_brooding[clin_dat2$raw_id == i]
+    dat2$refl[dat2$subject == i] <- clin_dat2$rsq_reflection[clin_dat2$raw_id == i]
+    
+}
 
 ```
 
@@ -858,10 +880,7 @@ g_prior_mean1_pswq <- dat3 %>%
     stat_cor(method="spearman", label.y.npc=0.1) +
     xlab("PSWQ") +
     ylab("Mean weight of mod. prior") +
-    theme(strip.background=element_blank(),
-          panel.background=element_blank(),
-          axis.line=element_line(),
-          axis.ticks=element_blank())
+    default_plot_theme
 g_prior_mean1_rsq <- dat3 %>%
     ggplot(aes(rsq, prior_mean1)) +
     geom_point() +
@@ -869,10 +888,7 @@ g_prior_mean1_rsq <- dat3 %>%
     stat_cor(method="spearman", label.y.npc=0.1) +
     xlab("RSQ") +
     ylab("Mean weight of mod. prior") +
-    theme(strip.background=element_blank(),
-          panel.background=element_blank(),
-          axis.line=element_line(),
-          axis.ticks=element_blank())
+    default_plot_theme
 g_prior_mean1_hars <- dat3 %>%
     ggplot(aes(hars, prior_mean1)) +
     geom_point() +
@@ -880,10 +896,7 @@ g_prior_mean1_hars <- dat3 %>%
     stat_cor(method="spearman", label.y.npc=0.1) +
     xlab("HARS") +
     ylab("Mean weight of mod. prior") +
-    theme(strip.background=element_blank(),
-          panel.background=element_blank(),
-          axis.line=element_line(),
-          axis.ticks=element_blank())
+    default_plot_theme
 g_prior_mean1_hamd <- dat3 %>%
     ggplot(aes(hamd, prior_mean1)) +
     geom_point() +
@@ -891,10 +904,7 @@ g_prior_mean1_hamd <- dat3 %>%
     stat_cor(method="spearman", label.y.npc=0.1) +
     xlab("HAMD") +
     ylab("Mean weight of mod. prior") +
-    theme(strip.background=element_blank(),
-          panel.background=element_blank(),
-          axis.line=element_line(),
-          axis.ticks=element_blank())
+    default_plot_theme
 
 # Moderate prior strength models
 mod_prior1_pswq <- dat %>%
@@ -922,10 +932,7 @@ g_prior_mean2_pswq <- dat3 %>%
     stat_cor(method="spearman", label.y.npc=0.1) +
     xlab("PSWQ") +
     ylab("Mean weight of strong prior") +
-    theme(strip.background=element_blank(),
-          panel.background=element_blank(),
-          axis.line=element_line(),
-          axis.ticks=element_blank())
+    default_plot_theme
 g_prior_mean2_rsq <- dat3 %>%
     ggplot(aes(rsq, prior_mean2)) +
     geom_point() +
@@ -933,10 +940,7 @@ g_prior_mean2_rsq <- dat3 %>%
     stat_cor(method="spearman", label.y.npc=0.1) +
     xlab("RSQ") +
     ylab("Mean weight of strong prior") +
-    theme(strip.background=element_blank(),
-          panel.background=element_blank(),
-          axis.line=element_line(),
-          axis.ticks=element_blank())
+    default_plot_theme
 g_prior_mean2_hars <- dat3 %>%
     ggplot(aes(hars, prior_mean2)) +
     geom_point() +
@@ -944,10 +948,7 @@ g_prior_mean2_hars <- dat3 %>%
     stat_cor(method="spearman", label.y.npc=0.1) +
     xlab("HARS") +
     ylab("Mean weight of strong prior") +
-    theme(strip.background=element_blank(),
-          panel.background=element_blank(),
-          axis.line=element_line(),
-          axis.ticks=element_blank())
+    default_plot_theme
 g_prior_mean2_hamd <- dat3 %>%
     ggplot(aes(hamd, prior_mean2)) +
     geom_point() +
@@ -955,10 +956,7 @@ g_prior_mean2_hamd <- dat3 %>%
     stat_cor(method="spearman", label.y.npc=0.1) +
     xlab("HAMD") +
     ylab("Mean weight of strong prior") +
-    theme(strip.background=element_blank(),
-          panel.background=element_blank(),
-          axis.line=element_line(),
-          axis.ticks=element_blank())
+    default_plot_theme
 
 mod_prior2_pswq <- dat %>%
     filter(trialnum == 1, abs(POS) == 2) %>%
@@ -991,29 +989,29 @@ The reported statistics are for trial level data, but such data does not make fo
 # PSWQ
 tmp <- dat %>%
     filter(trialnum == 1, POS != 0) %>%
-    model_clinical_behavior(dat3, "prior_strength", "pswq", "Prior Strength", "Worry (PSWQ)", 35, 0.75, "prior_mean1")
-g_prior_pswq <- tmp$g
+    model_clinical_behavior(dat3, "prior_strength", "pswq", "Prior Strength", "Worry (PSWQ)", NULL, NULL, "blue", "prior_mean1")
+g_prior_pswq <- tmp$g + theme(text=element_text(size=24))
 mod_prior_pswq <- tmp$mod
 
 # RSQ
 tmp <- dat %>%
     filter(trialnum == 1, POS != 0) %>%
-    model_clinical_behavior(dat3, "prior_strength", "rsq", "Prior Strength", "Rumination (RSQ)", 60, 0.75, "prior_mean1")
-g_prior_rsq <- tmp$g
+    model_clinical_behavior(dat3, "prior_strength", "rsq", "Prior Strength", "Rumination (RSQ)", NULL, NULL, "blue", "prior_mean1")
+g_prior_rsq <- tmp$g + theme(text=element_text(size=24))
 mod_prior_rsq <- tmp$mod
 
 # HARS
 tmp <- dat %>%
     filter(trialnum == 1, POS != 0) %>%
-    model_clinical_behavior(dat3, "prior_strength", "hars", "Prior Strength", "Anxiety (HARS)", 20, 0.75, "prior_mean1")
-g_prior_hars <- tmp$g
+    model_clinical_behavior(dat3, "prior_strength", "hars", "Prior Strength", "Anxiety (HARS)", NULL, NULL, "blue", "prior_mean1")
+g_prior_hars <- tmp$g + theme(text=element_text(size=24))
 mod_prior_hars <- tmp$mod
 
 # HAMD
 tmp <- dat %>%
     filter(trialnum == 1, POS != 0) %>%
-    model_clinical_behavior(dat3, "prior_strength", "hamd", "Prior Strength", "Depression (HAMD)", 15, 0.75, "prior_mean1")
-g_prior_hamd <- tmp$g
+    model_clinical_behavior(dat3, "prior_strength", "hamd", "Prior Strength", "Depression (HAMD)", NULL, NULL, "blue", "prior_mean1")
+g_prior_hamd <- tmp$g + theme(text=element_text(size=24))
 mod_prior_hamd <- tmp$mod
 
 grid.arrange(g_prior_pswq, g_prior_rsq, g_prior_hars, g_prior_hamd, nrow=2, ncol=2)
@@ -1030,29 +1028,33 @@ AI added 9/9/2025: prior1 only considers the prior when the fisherman’s in the
 # PSWQ
 tmp <- dat %>%
     filter(trialnum > 1, blocknum != 11, blocknum != 20) %>%
-    model_clinical_behavior(dat3, "dev", "pswq", "Deviation (abs.)", "Worry (PSWQ)", 65, 0.22, "dev_full_abs")
-g_dev_abs_pswq <- tmp$g
+    model_clinical_behavior(dat3, "dev", "pswq", "Deviation (abs.)", "Worry (PSWQ)", NULL, NULL, "blue", "dev_full_abs")
+#    model_clinical_behavior(dat3, "dev", "pswq", "Deviation (abs.)", "Worry (PSWQ)", 65, 0.22, "dev_full_abs")
+g_dev_abs_pswq <- tmp$g + theme(text=element_text(size=24))
 mod_dev_abs_pswq <- tmp$mod
 
 # RSQ
 tmp <- dat %>%
     filter(trialnum > 1, blocknum != 11, blocknum != 20) %>%
-    model_clinical_behavior(dat3, "dev", "rsq", "Deviation (abs.)", "Rumination (RSQ)", 60, 0.22, "dev_full_abs")
-g_dev_abs_rsq <- tmp$g
+    model_clinical_behavior(dat3, "dev", "rsq", "Deviation (abs.)", "Rumination (RSQ)", NULL, NULL, "blue", "dev_full_abs")
+#    model_clinical_behavior(dat3, "dev", "rsq", "Deviation (abs.)", "Rumination (RSQ)", 60, 0.22, "dev_full_abs")
+g_dev_abs_rsq <- tmp$g + theme(text=element_text(size=24))
 mod_dev_abs_rsq <- tmp$mod
 
 # HARS
 tmp <- dat %>%
     filter(trialnum > 1, blocknum != 11, blocknum != 20) %>%
-    model_clinical_behavior(dat3, "dev", "hars", "Deviation (abs.)", "Anxiety (HARS)", 20, 0.21, "dev_full_abs")
-g_dev_abs_hars <- tmp$g
+    model_clinical_behavior(dat3, "dev", "hars", "Deviation (abs.)", "Anxiety (HARS)", NULL, NULL, "blue", "dev_full_abs")
+#    model_clinical_behavior(dat3, "dev", "hars", "Deviation (abs.)", "Anxiety (HARS)", 20, 0.21, "dev_full_abs")
+g_dev_abs_hars <- tmp$g + theme(text=element_text(size=24))
 mod_dev_abs_hars <- tmp$mod
 
 # HAMD
 tmp <- dat %>%
     filter(trialnum > 1, blocknum != 11, blocknum != 20) %>%
-    model_clinical_behavior(dat3, "dev", "hamd", "Deviation (abs.)", "Depression (HAMD)", 15, 0.21, "dev_full_abs")
-g_dev_abs_hamd <- tmp$g
+    model_clinical_behavior(dat3, "dev", "hamd", "Deviation (abs.)", "Depression (HAMD)", NULL, NULL, "blue", "dev_full_abs")
+#    model_clinical_behavior(dat3, "dev", "hamd", "Deviation (abs.)", "Depression (HAMD)", 15, 0.21, "blue", "dev_full_abs")
+g_dev_abs_hamd <- tmp$g + theme(text=element_text(size=24))
 mod_dev_abs_hamd <- tmp$mod
 
 grid.arrange(g_dev_abs_pswq, g_dev_abs_rsq, g_dev_abs_hars, g_dev_abs_hamd, nrow=2, ncol=2)
@@ -1137,7 +1139,8 @@ g_likelihood_weight_mem_hamd <- dat3 %>%
     stat_smooth(method="lm") +
     stat_cor(method="pearson", label.y.npc=0.9) +
     xlab("HAMD") +
-    ylab("Likelihood Weight (mem)")
+    ylab("Likelihood Weight (mem)") +
+    default_plot_theme
 
 grid.arrange(g_likelihood_weight_mem_pswq, g_likelihood_weight_mem_rsq, 
              g_likelihood_weight_mem_hars, g_likelihood_weight_mem_hamd,
@@ -1186,12 +1189,12 @@ g_prior_likelihood_diff_mem_pswq <- dat3 %>%
     filter(prior_likelihood_diff_mem > -0.75) %>%
     ggplot(aes(pswq, prior_likelihood_diff_mem)) +
     geom_point(size=3) +
-    stat_smooth(method="lm", size=3, color="gray", fill="gray") +
-    #stat_smooth(method="lm", size=2, color="lightgray", fill=rgb(0, 0, 1, 0.2)) +
-    annotate(geom="text", x=70, y=-0.4, label=lab, color="gray", size=18/.pt) +
+    #stat_smooth(method="lm", size=3, color="gray", fill="gray") +
+    stat_smooth(method="lm", size=2, color="blue", fill="blue", alpha=0.2) +
+    #annotate(geom="text", x=70, y=-0.4, label=lab, color="gray", size=18/.pt) +
     xlab("Worry (PSWQ)") +
     ylab("Update Strength") +
-    theme(text=element_text(size=18),
+    theme(text=element_text(size=24),
           strip.background=element_blank(),
           panel.background=element_blank(),
           axis.line=element_line(),
@@ -1201,12 +1204,12 @@ g_prior_likelihood_diff_mem_rsq <- dat3 %>%
     filter(prior_likelihood_diff_mem > -0.75) %>%
     ggplot(aes(rsq, prior_likelihood_diff_mem)) +
     geom_point(size=3) +
-    stat_smooth(method="lm", size=3, color="darkmagenta", fill="darkmagenta") +
-    #stat_smooth(method="lm", size=2, color="red", fill=rgb(1, 0, 0, 0.2)) +
-    annotate(geom="text", x=65, y=-0.4, label=lab, color="darkmagenta", size=18/.pt) +
+    #stat_smooth(method="lm", size=3, color="darkmagenta", fill="darkmagenta") +
+    stat_smooth(method="lm", size=3, color="blue", fill="blue", alpha=0.2) +
+    #annotate(geom="text", x=65, y=-0.4, label=lab, color="darkmagenta", size=18/.pt) +
     xlab("Rumination (RSQ)") +
     ylab("Update Strength") +
-    theme(text=element_text(size=18),
+    theme(text=element_text(size=24),
           strip.background=element_blank(),
           panel.background=element_blank(),
           axis.line=element_line(),
@@ -1216,9 +1219,9 @@ g_prior_likelihood_diff_mem_hars <- dat3 %>%
     filter(prior_likelihood_diff_mem > -0.75) %>%
     ggplot(aes(hars, prior_likelihood_diff_mem)) +
     geom_point(size=3) +
-    stat_smooth(method="lm", size=3, color="gray", fill="gray") +
-    #stat_smooth(method="lm", size=2, color="blue", fill=rgb(0, 0, 1, 0.2)) +
-    annotate(geom="text", x=30, y=-0.2, label=lab, color="gray", size=18/.pt) +
+    #stat_smooth(method="lm", size=3, color="gray", fill="gray") +
+    stat_smooth(method="lm", size=2, color="blue", fill=rgb(0, 0, 1, 0.2)) +
+    #annotate(geom="text", x=30, y=-0.2, label=lab, color="gray", size=18/.pt) +
     xlab("Anxiety (HARS)") +
     ylab("Update Strength") +
     theme(text=element_text(size=18),
@@ -1231,9 +1234,9 @@ g_prior_likelihood_diff_mem_hamd <- dat3 %>%
     filter(prior_likelihood_diff_mem > -0.75) %>%
     ggplot(aes(hamd, prior_likelihood_diff_mem)) +
     geom_point(size=3) +
-    stat_smooth(method="lm", size=3, color="gray", fill="gray") +
-    #stat_smooth(method="lm", size=2, color="lightgray", fill=rgb(0, 0, 1, 0.2)) +
-    annotate(geom="text", x=17, y=0.7, label=lab, color="gray", size=18/.pt) +
+    #stat_smooth(method="lm", size=3, color="gray", fill="gray") +
+    stat_smooth(method="lm", size=2, color="blue", fill=rgb(0, 0, 1, 0.2)) +
+    #annotate(geom="text", x=17, y=0.7, label=lab, color="gray", size=18/.pt) +
     xlab("Depression (HAMD)") +
     ylab("Update Strength") +
     theme(text=element_text(size=18),
@@ -1270,7 +1273,7 @@ g_hars_pswq = dat3 %>%
 g_pswq_rsq = dat3 %>%
   ggplot(aes(pswq, rsq)) +
   geom_point(size=3) +
-  stat_smooth(method="lm", color="red") +
+  stat_smooth(method="lm", color="red", size=2) +
   stat_cor(r.accuracy=0.01, p.accuracy=0.01, size=7) +
   xlab("Worry (PSWQ)") +
   ylab("Rumination (RSQ)") +
